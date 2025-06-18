@@ -1,0 +1,10 @@
+streamlit
+pandas
+numpy
+pykrx
+pandas-market-calendars
+mplfinance
+matplotlib
+scikit-learn
+requests
+beautifulsoup4
