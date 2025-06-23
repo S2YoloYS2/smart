@@ -1,4 +1,39 @@
 import streamlit as st
+# 비밀번호 확인 함수
+def check_password():
+    """Returns `True` if the user had the correct password."""
+    
+    def password_entered():
+        """Checks whether a password entered by the user is correct."""
+        if st.session_state["password"] == st.secrets["password"]:  # secrets에서 가져옴
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]
+        else:
+            st.session_state["password_correct"] = False
+
+    if "password_correct" not in st.session_state:
+        st.text_input(
+            "🔐 비밀번호를 입력하세요", 
+            type="password", 
+            on_change=password_entered, 
+            key="password"
+        )
+        return False
+    elif not st.session_state["password_correct"]:
+        st.text_input(
+            "🔐 비밀번호를 입력하세요", 
+            type="password", 
+            on_change=password_entered, 
+            key="password"
+        )
+        st.error("😕 비밀번호가 틀렸습니다")
+        return False
+    else:
+        return True
+
+# 비밀번호 체크
+if not check_password():
+    st.stop()
 import pandas as pd
 import numpy as np
 from pykrx import stock
