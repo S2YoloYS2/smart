@@ -1001,66 +1001,6 @@ with st.sidebar:
         key="investment_mode"
     )
     
-    # 종목 검색 추가
-    st.markdown("---")
-    st.subheader("🔍 개별 종목 검색")
-    
-    # 종목명 입력
-    search_input = st.text_input("종목명 또는 종목코드 입력", placeholder="예: 삼성전자 또는 005930")
-    
-    if st.button("🔎 종목 분석", key="single_search"):
-        if search_input:
-            # 종목 코드 찾기
-            name_code_map, code_name_map = get_name_code_map()
-            
-            # 종목명으로 검색
-            if search_input in name_code_map:
-                code = name_code_map[search_input]
-                name = search_input
-            # 종목코드로 검색
-            elif search_input in code_name_map:
-                code = search_input
-                name = code_name_map[search_input]
-            else:
-                st.error("종목을 찾을 수 없습니다.")
-                code = None
-            
-            if code:
-                with st.spinner(f"{name} 분석 중..."):
-                    # 데이터 가져오기
-                    today_str = get_most_recent_trading_day()
-                    start_date = (datetime.strptime(today_str, '%Y%m%d') - timedelta(days=90)).strftime('%Y%m%d')
-                    df = get_ohlcv_df(code, start_date, today_str)
-                    
-                    if not df.empty and len(df) >= 60:
-                        # 스마트 필터로 평가
-                        smart_filter = SmartStockFilter(mode=filter_mode)
-                        result = smart_filter.evaluate_stock(df, min_volume, min_market_cap)
-                        
-                        if result:
-                            st.success(f"✅ {name} 분석 완료!")
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                st.metric("등급", result['grade'])
-                            with col2:
-                                st.metric("점수", f"{result['score']}점")
-                            
-                            # 충족 조건 표시
-                            st.write("**충족 조건:**")
-                            for cond_name, (satisfied, detail) in result['conditions'].items():
-                                if satisfied:
-                                    st.write(f"✅ {cond_name}: {detail}")
-                            
-                            # 매수 추천
-                            buy_rec = analyze_buy_recommendation(result, name)
-                            if buy_rec['buy_score'] >= 75:
-                                st.success(f"**{buy_rec['recommendation']}** (점수: {buy_rec['buy_score']}점)")
-                            else:
-                                st.info(f"**{buy_rec['recommendation']}** (점수: {buy_rec['buy_score']}점)")
-                        else:
-                            st.warning("조건을 충족하지 못했습니다.")
-                    else:
-                        st.error("데이터가 부족합니다.")
     filter_mode = 'intermediate' if "중급자" in mode else 'advanced'
     
     st.markdown("---")
