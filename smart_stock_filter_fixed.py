@@ -1661,4 +1661,49 @@ if st.session_state.watchlist:
                     st.write(f"매수가: {stock['price']:,.0f}")
                 with col4:
                     if stock.get('success_reason') == '매수가 대비':
-                        st.write(f"수익률: {stock.get('return_rate', 0):+
+                        return_rate = stock.get('return_rate', 0)
+                        st.write(f"수익률: {return_rate:+.2f}%")
+                    else:
+                        rise_from_low = stock.get('rise_from_low', 0)
+                        st.write(f"최저가 대비: {rise_from_low:+.2f}%")
+                with col5:
+                    st.write(f"✅ {stock.get('success_reason', '성공')}")
+        else:
+            st.info("아직 성공한 종목이 없습니다.")
+    
+    with tab3:
+        # 전체 통계
+        total_stocks = len(st.session_state.watchlist)
+        watching = len([s for s in st.session_state.watchlist if s['status'] == 'watching'])
+        success = len([s for s in st.session_state.watchlist if s['status'] == 'success'])
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("전체 종목", total_stocks)
+        with col2:
+            st.metric("관찰 중", watching)
+        with col3:
+            st.metric("성공", success)
+        
+        # 섹터별 분포
+        if st.session_state.watchlist:
+            st.subheader("📊 관심종목 섹터별 분포")
+            sector_dist = {}
+            for stock in st.session_state.watchlist:
+                sector = stock.get('sector', '기타')
+                sector_dist[sector] = sector_dist.get(sector, 0) + 1
+            
+            sector_dist_df = pd.DataFrame(list(sector_dist.items()), columns=['섹터', '종목수'])
+            st.bar_chart(sector_dist_df.set_index('섹터')['종목수'])
+else:
+    st.info("관심종목이 없습니다. 종목 검색 후 ➕ 버튼을 눌러 추가하세요.")
+
+# 푸터
+st.markdown("---")
+st.caption("""
+💡 **투자 유의사항**
+- 모든 투자 결정은 본인의 책임입니다.
+- AI 예측과 백테스팅은 참고용입니다.
+- 프로그램 버전: 3.0 (CCI 돌파 직전 우선 검색 기능 추가)
+- 개발자: AI Assistant
+""")
