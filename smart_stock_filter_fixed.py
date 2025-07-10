@@ -759,14 +759,18 @@ class SmartStockFilter:
             curr_ma,  prev_ma  = cci_ma.iloc[-1], cci_ma.iloc[-2]
             diff = curr_ma - curr_cci      # MA – CCI (+면 CCI가 아래)
 
-            # 1-A. 직전 교차(near-cross): 아직 교차 전, 간격 ≤ 5pt, CCI 상승중
-            if (prev_cci < prev_ma and       # 이전 봉: CCI < MA
-                curr_cci < curr_ma and       # 아직 교차하지 않음
-                0 < diff <= 7 and            # 간격이 7포인트 이하
-                curr_cci > prev_cci):        # CCI 상승중
+            # 1-A. 직전 교차(near-cross)
+            if (
+                prev_cci < prev_ma and            # 이전 봉: CCI < MA
+                curr_cci < curr_ma and            # 아직 교차 전
+                0 < diff <= 7 and                 # 간격 ≤ 7pt  ← 여기만 조정
+                curr_cci > prev_cci               # CCI 상승 중
+            ):
                 score += 40
-                conditions['CCI_직전교차'] = (True,
-                    f\"CCI {curr_cci:.1f}, MA {curr_ma:.1f} Δ={diff:.1f} 직전 교차\")
+                conditions['CCI_직전교차'] = (
+                    True,
+                    f"CCI {curr_cci:.1f}, MA {curr_ma:.1f}, diff={diff:.1f} 직전 교차"
+                )
                 category_scores['CCI_조건']['score'] += 40
                 category_scores['CCI_조건']['count'] += 1
                 category_scores['CCI_조건']['conditions'].append('CCI_직전교차')
