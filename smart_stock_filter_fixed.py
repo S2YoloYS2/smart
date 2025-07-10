@@ -1329,10 +1329,10 @@ if st.session_state.show_results and st.session_state.search_results is not None
                     with col4:
                         if stock.get('success_reason') == '매수가 대비':
                             st.write(f"수익률: {stock.get('return_rate', 0):+.2f}%")
-                    else:
-                        st.write(f"최저가 대비: {stock.get('rise_from_low', 0):+.2f}%")
-                with col5:
-                    st.write(f"✅ {stock.get('success_reason', '성공')}")
+                        else:
+                            st.write(f"최저가 대비: {stock.get('rise_from_low', 0):+.2f}%")
+                    with col5:
+                        st.write(f"✅ {stock.get('success_reason', '성공')}")
         else:
             st.info("아직 성공한 종목이 없습니다.")
     
