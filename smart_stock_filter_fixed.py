@@ -1324,7 +1324,7 @@ if st.session_state.show_results and st.session_state.search_results is not None
                         
             # 상세 정보 (확장 가능)
             with st.expander("📋 상세 분석 보기"):
-                for stock in stocks[:5]:
+                for stock in stocks:
                     st.markdown(f"### {stock['name']} ({stock['code']}) - {stock['sector']}")
                     
                     # 탭으로 구성
