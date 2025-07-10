@@ -788,8 +788,8 @@ class SmartStockFilter:
                 score += 15
                 conditions['CCI_과매도'] = (True, f"CCI({c_cur:.1f}) 과매도 구간")
                 cats['CCI_조건']['score'] += 15; cats['CCI_조건']['count'] += 1; cats['CCI_조건']['conditions'].append('CCI_과매도')
-        except Exception:
-            pass    
+            except Exception:
+                pass    
         
         # 2. 캔들 패턴 체크
         try:
