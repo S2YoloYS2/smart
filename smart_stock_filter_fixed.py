@@ -762,7 +762,7 @@ class SmartStockFilter:
             # 1-A. 직전 교차(near-cross): 아직 교차 전, 간격 ≤ 5pt, CCI 상승중
             if (prev_cci < prev_ma and       # 이전 봉: CCI < MA
                 curr_cci < curr_ma and       # 아직 교차하지 않음
-                0 < diff <= 5 and            # 간격이 5포인트 이하
+                0 < diff <= 7 and            # 간격이 7포인트 이하
                 curr_cci > prev_cci):        # CCI 상승중
                 score += 40
                 conditions['CCI_직전교차'] = (True,
