@@ -1101,7 +1101,7 @@ if st.button("🔍 스마트 검색 실행", type="primary"):
             top_volume_codes = list(code_name_map.keys())[:search_limit]
         
         # 스마트 필터 실행
-        smart_filter = SmartStockFilter(mode=filter_mode, near_cross_thresh=10))
+        smart_filter = SmartStockFilter(mode=filter_mode, near_cross_thresh=10)
         results = []
         
         progress_bar = st.progress(0)
