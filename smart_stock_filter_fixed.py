@@ -730,7 +730,7 @@ def analyze_buy_recommendation(result, stock_name):
 class SmartStockFilter:
     """중급자/고급자용 스마트 필터"""
     
-     def __init__(self, mode="intermediate", near_cross_thresh=7):
+    def __init__(self, mode="intermediate", near_cross_thresh=7):
         self.mode = mode
         self.NC_THRESH = abs(near_cross_thresh)
         
