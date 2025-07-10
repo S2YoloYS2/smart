@@ -587,6 +587,7 @@ def backtest_strategy(df, conditions_met_dates):
                     })
     
     return pd.DataFrame(results)
+
 # --- 메인 UI ---
 st.markdown("""
 ### 📊 스마트 필터 시스템 v3.0
@@ -678,9 +679,12 @@ def analyze_buy_recommendation(result, stock_name):
     # 조건별 분석
     category_scores = result['category_scores']
     
-    # 1. CCI 조건 분석
+    # 1. CCI 조건 분석 (CCI 돌파 직전 우선 체크)
     if category_scores['CCI_조건']['count'] > 0:
-        if 'CCI_교차' in str(result['conditions']):
+        if 'CCI_돌파직전' in str(result['conditions']):
+            recommendation['reasons'].append("🎯 CCI 골든크로스 돌파 직전 - 최적의 매수 타이밍!")
+            recommendation['buy_score'] += 10  # 추가 보너스 점수
+        elif 'CCI_교차' in str(result['conditions']):
             recommendation['reasons'].append("✅ CCI 골든크로스 발생 - 매수 타이밍 우수")
             recommendation['buy_score'] += 5
         elif 'CCI_접근' in str(result['conditions']):
@@ -732,7 +736,7 @@ class SmartStockFilter:
     
     def __init__(self,
                  mode: str = "intermediate",
-                 near_cross_thresh: float = 7.0):     # ← 새 임계값 기본 7pt
+                 near_cross_thresh: float = 5.0):     # CCI와 MA 사이 거리 임계값 (5포인트 이내)
         self.mode = mode
         self.NC_THRESH = abs(near_cross_thresh)
         
@@ -752,44 +756,60 @@ class SmartStockFilter:
             '거래량_지표': {'score': 0, 'count': 0, 'conditions': []},
         }
         
-        # 1. CCI 조건 체크 ― ★ near-cross(직전 교차) 로직 추가 ★
+        # 1. CCI 조건 체크 - 돌파 직전 조건을 최우선으로
         try:
             cci = compute_cci(df['High'], df['Low'], df['Close'])
             cci_ma = compute_cci_ma(cci)
             if len(cci) >= 2:
                 c_cur, c_prev = cci.iloc[-1], cci.iloc[-2]
                 m_cur, m_prev = cci_ma.iloc[-1], cci_ma.iloc[-2]
-                gap = m_cur - c_cur   # +면 CCI 아래
+                gap = m_cur - c_cur   # +면 CCI가 MA 아래
 
-                # 1‑A 직전 교차 (아직 교차 전 & gap ≤ 임계 & 상승 중)
-                if (c_prev < m_prev and c_cur < m_cur and 0 < gap <= self.NC_THRESH and c_cur > c_prev):
-                    score += 40
-                    conditions['CCI_직전교차'] = (True, f"CCI {c_cur:.1f}, MA {m_cur:.1f}, gap={gap:.1f} 직전 교차")
-                    cats['CCI_조건']['score'] += 40; cats['CCI_조건']['count'] += 1; cats['CCI_조건']['conditions'].append('CCI_직전교차')
-
-                # 1‑B 골든크로스 완료
+                # 1-A. 돌파 직전 (최우선 조건) - CCI가 MA 아래에서 접근 중
+                # 조건: CCI < MA, 간격이 좁아지고 있음, CCI 상승 중
+                if (c_prev < m_prev and c_cur < m_cur and  # 아직 돌파 전
+                    0 < gap <= self.NC_THRESH and          # 간격이 임계값 이내
+                    c_cur > c_prev and                     # CCI 상승 중
+                    (c_cur - c_prev) > (m_cur - m_prev)):  # CCI가 MA보다 빠르게 상승
+                    score += 50  # 최고 점수 부여
+                    conditions['CCI_돌파직전'] = (True, f"CCI({c_cur:.1f}) MA({m_cur:.1f}) 돌파 직전 (gap: {gap:.1f})")
+                    category_scores['CCI_조건']['score'] += 50
+                    category_scores['CCI_조건']['count'] += 1
+                    category_scores['CCI_조건']['conditions'].append('CCI_돌파직전')
+                
+                # 1-B. 이미 골든크로스 완료 (차선책)
                 elif c_prev < m_prev and c_cur >= m_cur and m_cur < 0:
-                    score += 35
-                    conditions['CCI_교차'] = (True, f"CCI({c_prev:.1f}→{c_cur:.1f}) 골든크로스")
-                    cats['CCI_조건']['score'] += 35; cats['CCI_조건']['count'] += 1; cats['CCI_조건']['conditions'].append('CCI_교차')
-
-                # 1‑C MA 접근 (‑60까지 완화)
-                elif c_cur < m_cur and c_cur > c_prev and m_cur < 0 and c_cur >= -60:
-                    score += 30
-                    conditions['CCI_접근'] = (True, f"CCI({c_cur:.1f}) MA 접근중")
-                    cats['CCI_조건']['score'] += 30; cats['CCI_조건']['count'] += 1; cats['CCI_조건']['conditions'].append('CCI_접근')
-
-                # 1‑D 상승 전환
-                elif c_prev < -50 and c_cur > c_prev and (c_cur - c_prev) > 5:
+                    score += 30  # 점수 하향
+                    conditions['CCI_교차'] = (True, f"CCI({c_prev:.1f}→{c_cur:.1f}) 골든크로스 완료")
+                    category_scores['CCI_조건']['score'] += 30
+                    category_scores['CCI_조건']['count'] += 1
+                    category_scores['CCI_조건']['conditions'].append('CCI_교차')
+                
+                # 1-C. MA 접근 중 (gap이 좁아지는 중)
+                elif (c_cur < m_cur and c_cur > c_prev and 
+                      m_cur < 0 and c_cur >= -60 and
+                      gap < abs(m_prev - c_prev)):  # 이전보다 gap이 좁아짐
                     score += 25
+                    conditions['CCI_접근'] = (True, f"CCI({c_cur:.1f}) MA 접근 중 (gap: {gap:.1f})")
+                    category_scores['CCI_조건']['score'] += 25
+                    category_scores['CCI_조건']['count'] += 1
+                    category_scores['CCI_조건']['conditions'].append('CCI_접근')
+                
+                # 1-D. 상승 전환
+                elif c_prev < -50 and c_cur > c_prev and (c_cur - c_prev) > 5:
+                    score += 20
                     conditions['CCI_상승전환'] = (True, f"CCI({c_prev:.1f}→{c_cur:.1f}) 상승 전환")
-                    cats['CCI_조건']['score'] += 25; cats['CCI_조건']['count'] += 1; cats['CCI_조건']['conditions'].append('CCI_상승전환')
-
-                # 1‑E 과매도
+                    category_scores['CCI_조건']['score'] += 20
+                    category_scores['CCI_조건']['count'] += 1
+                    category_scores['CCI_조건']['conditions'].append('CCI_상승전환')
+                
+                # 1-E. 과매도 구간
                 elif c_cur < -50:
-                    score += 15
+                    score += 10
                     conditions['CCI_과매도'] = (True, f"CCI({c_cur:.1f}) 과매도 구간")
-                    cats['CCI_조건']['score'] += 15; cats['CCI_조건']['count'] += 1; cats['CCI_조건']['conditions'].append('CCI_과매도')
+                    category_scores['CCI_조건']['score'] += 10
+                    category_scores['CCI_조건']['count'] += 1
+                    category_scores['CCI_조건']['conditions'].append('CCI_과매도')
         except Exception:
             pass
         
@@ -932,22 +952,22 @@ class SmartStockFilter:
                 pass
         
         # 6. 기관/외국인 수급 (간단 버전)
-            try:
-                # 최근 5일 수급 데이터
-                recent_date = df.index[-1].strftime('%Y%m%d')
-                df_trading = stock.get_market_trading_value_by_date(recent_date, recent_date, code)
+        try:
+            # 최근 5일 수급 데이터
+            recent_date = df.index[-1].strftime('%Y%m%d')
+            df_trading = stock.get_market_trading_value_by_date(recent_date, recent_date, code)
     
-                if not df_trading.empty:
-                    inst_net = df_trading['기관합계'].iloc[-1]
-                    foreign_net = df_trading['외국인합계'].iloc[-1]
+            if not df_trading.empty:
+                inst_net = df_trading['기관합계'].iloc[-1]
+                foreign_net = df_trading['외국인합계'].iloc[-1]
         
                 if inst_net > 0 and foreign_net > 0:
                     score += 20
                     conditions['수급_동시매수'] = (True, "기관/외인 동시 순매수")
                     category_scores['거래량_지표']['score'] += 20
                     category_scores['거래량_지표']['count'] += 1
-            except:
-                pass  # 오류 무시
+        except:
+            pass  # 오류 무시
             
         # 등급 계산
         grade = self.calculate_grade(score, category_scores)
@@ -1041,8 +1061,17 @@ with st.sidebar:
         )
     
     # 빠른 검색 옵션
-    st.markdown("---")
     quick_search = st.checkbox("⚡ 빠른 검색 모드", value=True, help="KOSPI 상위 종목만 검색")
+    
+    # CCI 돌파 직전 감지 임계값
+    st.markdown("---")
+    cci_threshold = st.slider(
+        "🎯 CCI 돌파 직전 감지 범위",
+        1.0, 10.0, 
+        value=5.0,
+        step=0.5,
+        help="CCI와 MA 사이 거리 (작을수록 엄격)"
+    )
     
     # 조건 엄격도
     st.markdown("---")
@@ -1103,8 +1132,8 @@ if st.button("🔍 스마트 검색 실행", type="primary"):
             
             top_volume_codes = list(code_name_map.keys())[:search_limit]
         
-        # 스마트 필터 실행
-        smart_filter = SmartStockFilter(mode=filter_mode, near_cross_thresh=10)
+        # 스마트 필터 실행 (CCI 임계값 전달)
+        smart_filter = SmartStockFilter(mode=filter_mode, near_cross_thresh=cci_threshold)
         results = []
         
         progress_bar = st.progress(0)
@@ -1215,6 +1244,7 @@ if st.button("🔍 스마트 검색 실행", type="primary"):
         
         # 결과를 세션 상태에 저장
         st.session_state.search_results = results
+
 # 검색 결과 표시 (세션 상태에서 가져오기)
 if st.session_state.show_results and st.session_state.search_results is not None:
     results = st.session_state.search_results
@@ -1251,8 +1281,14 @@ if st.session_state.show_results and st.session_state.search_results is not None
                     if satisfied and any(key in cond_name for key in ['CCI', '캔들', 'MA', '52주']):
                         main_conditions.append(cond_name.split('_')[0])
                 
-                # 매수 추천 분석
+                # 매수 추천 분석 (CCI 돌파 직전 우선순위 반영)
                 buy_rec = analyze_buy_recommendation(stock, stock['name'])
+                
+                # CCI 돌파 직전인 경우 특별 표시
+                if 'CCI_돌파직전' in str(stock['conditions']):
+                    recommendation = f"🔥 {buy_rec['recommendation']}"
+                else:
+                    recommendation = buy_rec['recommendation']
                 
                 # AI 예측 포맷팅
                 ai_pred_str = "-"
@@ -1269,7 +1305,7 @@ if st.session_state.show_results and st.session_state.search_results is not None
                     '전일비': f"{stock['change']:+.2f}%",
                     '거래량': f"{stock['volume']:,}",
                     '점수': stock['score'],
-                    '매수추천': buy_rec['recommendation'],
+                    '매수추천': recommendation,
                     'AI예측': ai_pred_str,
                     '주요신호': ', '.join(main_conditions[:3])  # 상위 3개만
                 })
@@ -1289,6 +1325,51 @@ if st.session_state.show_results and st.session_state.search_results is not None
                     with col3:
                         st.write(row['코드'])
                     with col4:
+                    if stock.get('success_reason') == '매수가 대비':
+                        st.write(f"수익률: {stock.get('return_rate', 0):+.2f}%")
+                    else:
+                        st.write(f"최저가 대비: {stock.get('rise_from_low', 0):+.2f}%")
+                with col5:
+                    st.write(f"✅ {stock.get('success_reason', '성공')}")
+        else:
+            st.info("아직 성공한 종목이 없습니다.")
+    
+    with tab3:
+        # 전체 통계
+        total_stocks = len(st.session_state.watchlist)
+        watching = len([s for s in st.session_state.watchlist if s['status'] == 'watching'])
+        success = len([s for s in st.session_state.watchlist if s['status'] == 'success'])
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("전체 종목", total_stocks)
+        with col2:
+            st.metric("관찰 중", watching)
+        with col3:
+            st.metric("성공", success)
+        
+        # 섹터별 분포
+        if st.session_state.watchlist:
+            st.subheader("📊 관심종목 섹터별 분포")
+            sector_dist = {}
+            for stock in st.session_state.watchlist:
+                sector = stock.get('sector', '기타')
+                sector_dist[sector] = sector_dist.get(sector, 0) + 1
+            
+            sector_dist_df = pd.DataFrame(list(sector_dist.items()), columns=['섹터', '종목수'])
+            st.bar_chart(sector_dist_df.set_index('섹터')['종목수'])
+else:
+    st.info("관심종목이 없습니다. 종목 검색 후 ➕ 버튼을 눌러 추가하세요.")
+
+# 푸터
+st.markdown("---")
+st.caption("""
+💡 **투자 유의사항**
+- 모든 투자 결정은 본인의 책임입니다.
+- AI 예측과 백테스팅은 참고용입니다.
+- 프로그램 버전: 3.0 (AI 예측, 백테스팅, 뉴스 분석 추가)
+- 개발자: AI Assistant
+""")
                         st.write(row['현재가'])
                     with col5:
                         st.write(row['전일비'])
@@ -1620,48 +1701,3 @@ if st.session_state.watchlist:
                 with col3:
                     st.write(f"매수가: {stock['price']:,.0f}")
                 with col4:
-                    if stock.get('success_reason') == '매수가 대비':
-                        st.write(f"수익률: {stock.get('return_rate', 0):+.2f}%")
-                    else:
-                        st.write(f"최저가 대비: {stock.get('rise_from_low', 0):+.2f}%")
-                with col5:
-                    st.write(f"✅ {stock.get('success_reason', '성공')}")
-        else:
-            st.info("아직 성공한 종목이 없습니다.")
-    
-    with tab3:
-        # 전체 통계
-        total_stocks = len(st.session_state.watchlist)
-        watching = len([s for s in st.session_state.watchlist if s['status'] == 'watching'])
-        success = len([s for s in st.session_state.watchlist if s['status'] == 'success'])
-        
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("전체 종목", total_stocks)
-        with col2:
-            st.metric("관찰 중", watching)
-        with col3:
-            st.metric("성공", success)
-        
-        # 섹터별 분포
-        if st.session_state.watchlist:
-            st.subheader("📊 관심종목 섹터별 분포")
-            sector_dist = {}
-            for stock in st.session_state.watchlist:
-                sector = stock.get('sector', '기타')
-                sector_dist[sector] = sector_dist.get(sector, 0) + 1
-            
-            sector_dist_df = pd.DataFrame(list(sector_dist.items()), columns=['섹터', '종목수'])
-            st.bar_chart(sector_dist_df.set_index('섹터')['종목수'])
-else:
-    st.info("관심종목이 없습니다. 종목 검색 후 ➕ 버튼을 눌러 추가하세요.")
-
-# 푸터
-st.markdown("---")
-st.caption("""
-💡 **투자 유의사항**
-- 모든 투자 결정은 본인의 책임입니다.
-- AI 예측과 백테스팅은 참고용입니다.
-- 프로그램 버전: 3.0 (AI 예측, 백테스팅, 뉴스 분석 추가)
-- 개발자: AI Assistant
-""")
