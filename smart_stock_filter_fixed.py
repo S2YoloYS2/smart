@@ -778,8 +778,10 @@ class SmartStockFilter:
             # 1-B. 골든크로스(완료)
             elif prev_cci < prev_ma and curr_cci >= curr_ma and curr_ma < 0:
                 score += 35
-                conditions['CCI_교차'] = (True,
-                    f"CCI({prev_cci:.1f}→{curr_cci:.1f}) 골든크로스\")
+                conditions['CCI_교차'] = (
+                    True,
+                    f"CCI({prev_cci:.1f}→{curr_cci:.1f}) 골든크로스"
+                )
                 category_scores['CCI_조건']['score'] += 35
                 category_scores['CCI_조건']['count'] += 1
                 category_scores['CCI_조건']['conditions'].append('CCI_교차')
