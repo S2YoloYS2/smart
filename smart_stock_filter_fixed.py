@@ -781,7 +781,7 @@ class SmartStockFilter:
                 )
                 # ──────────────────────────────────
 
-        except Exception as e:                  # ← except ②  (try: 와 같은 깊이!)
+        except Exception as e:
             pass 
 
                 # 1‑B 골든크로스 완료
