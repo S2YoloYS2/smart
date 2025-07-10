@@ -789,7 +789,7 @@ class SmartStockFilter:
                   curr_ma < 0 and curr_cci >= -60):
                 score += 30
                 conditions['CCI_접근'] = (True,
-                    f\"CCI({curr_cci:.1f}) MA 접근중\")
+                    f"CCI({curr_cci:.1f}) MA 접근중\")
                 category_scores['CCI_조건']['score'] += 30
                 category_scores['CCI_조건']['count'] += 1
                 category_scores['CCI_조건']['conditions'].append('CCI_접근')
@@ -798,7 +798,7 @@ class SmartStockFilter:
             elif prev_cci < -50 and curr_cci > prev_cci and (curr_cci - prev_cci) > 5:
                 score += 25
                 conditions['CCI_상승전환'] = (True,
-                    f\"CCI({prev_cci:.1f}→{curr_cci:.1f}) 상승 전환\")
+                    f"CCI({prev_cci:.1f}→{curr_cci:.1f}) 상승 전환\")
                 category_scores['CCI_조건']['score'] += 25
                 category_scores['CCI_조건']['count'] += 1
                 category_scores['CCI_조건']['conditions'].append('CCI_상승전환')
@@ -807,7 +807,7 @@ class SmartStockFilter:
             elif curr_cci < -50:
                 score += 15
                 conditions['CCI_과매도'] = (True,
-                    f\"CCI({curr_cci:.1f}) 과매도 구간\")
+                    f"CCI({curr_cci:.1f}) 과매도 구간\")
                 category_scores['CCI_조건']['score'] += 15
                 category_scores['CCI_조건']['count'] += 1
                 category_scores['CCI_조건']['conditions'].append('CCI_과매도')
