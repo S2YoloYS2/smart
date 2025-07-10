@@ -759,31 +759,30 @@ class SmartStockFilter:
                 m_cur, m_prev = cci_ma.iloc[-1], cci_ma.iloc[-2]
                 gap = m_cur - c_cur   # +면 CCI 아래
 
-                # 1-A. 직전 교차(아직 교차 前 & gap ≤ 임계 + CCI 상승 중)
-                try:
-                    if (c_prev < m_prev and c_cur < m_cur        # 전 봉/이번 봉 모두 MA 아래
-                        and 0 < gap <= self.NC_THRESH            # gap(절대값) ≤ 임계값
-                        and c_cur > c_prev):                     # CCI가 위로 움직이며 '직전교차'
+                 # 1-A. CCI 직전교차 + gap 조건  ──────────────
+        try:                                    # ← try: ①
+            if (c_prev < m_prev and c_cur < m_cur        # 전·현 봉 모두 MA 아래
+                and 0 < gap <= self.NC_THRESH            # gap ≤ 임계값
+                and c_cur > c_prev):                     # CCI가 위쪽으로 전환
 
-                        score += 40
-                        conditions['CCI_직전교차'] = (
-                            True,
-                            f"CCI({c_cur:.1f}), MA({m_cur:.1f}), gap={gap:.1f}pt 직전 교차"
-                        )
-                        category_scores['CCI_조건']['score'] += 40
-                        category_scores['CCI_조건']['count'] += 1
-                        category_scores['CCI_조건']['conditions'].append('CCI_직전교차')
+                score += 40
+                conditions['CCI_직전교차'] = (
+                    True,
+                    f"CCI({c_cur:.1f}), MA({m_cur:.1f}), gap={gap:.1f}pt 직전 교차"
+                )
+                category_scores['CCI_조건']['score']  += 40
+                category_scores['CCI_조건']['count']  += 1
+                category_scores['CCI_조건']['conditions'].append('CCI_직전교차')
 
-                # ──────── DEBUG 메시지 ────────
+                # ─────── DEBUG 확인용 메시지 ───────
                 st.toast(
                     f"DEBUG CCI_직전교차 hit={ 'CCI_직전교차' in conditions } "
                     f"gap={gap:.1f}"
                 )
-                # ─────────────────────────────
+                # ──────────────────────────────────
 
-        except Exception as e:        # ← ① try: 와 같은 깊이
+        except Exception as e:                  # ← except ②  (try: 와 같은 깊이!)
             pass 
-                # ---------------------------  끝 ---------------------------
 
                 # 1‑B 골든크로스 완료
                 elif c_prev < m_prev and c_cur >= m_cur and m_cur < 0:
