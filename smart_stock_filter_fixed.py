@@ -777,8 +777,8 @@ class SmartStockFilter:
                     category_scores['CCI_조건']['score']  += 40
                     category_scores['CCI_조건']['count']  += 1
                     category_scores['CCI_조건']['conditions'].append('CCI_직전교차')
-         st.toast(
-            f"DEBUG CCI_직전교차 hit={ 'CCI_직전교차' in conditions }"
+        st.toast(
+            f"DEBUG CCI_직전교차 hit={ 'CCI_직전교차' in conditions } "
             f"gap={gap:.1f}"
                 # ---------------------------  끝 ---------------------------
 
