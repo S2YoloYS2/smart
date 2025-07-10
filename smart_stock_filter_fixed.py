@@ -731,8 +731,8 @@ class SmartStockFilter:
     """중급자/고급자용 스마트 필터"""
     
     def __init__(self,
-             mode: str = "intermediate",
-             near_cross_thresh: float = 7.0):     # ← 새 임계값 기본 7pt
+                 mode: str = "intermediate",
+                 near_cross_thresh: float = 7.0):     # ← 새 임계값 기본 7pt
         self.mode = mode
         self.NC_THRESH = abs(near_cross_thresh)
         
