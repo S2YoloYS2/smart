@@ -1327,8 +1327,8 @@ if st.session_state.show_results and st.session_state.search_results is not None
                     with col3:
                         st.write(row['코드'])
                     with col4:
-                    if stock.get('success_reason') == '매수가 대비':
-                        st.write(f"수익률: {stock.get('return_rate', 0):+.2f}%")
+                        if stock.get('success_reason') == '매수가 대비':
+                            st.write(f"수익률: {stock.get('return_rate', 0):+.2f}%")
                     else:
                         st.write(f"최저가 대비: {stock.get('rise_from_low', 0):+.2f}%")
                 with col5:
