@@ -34,6 +34,7 @@ def check_password():
 # 비밀번호 체크
 if not check_password():
     st.stop()
+
 import pandas as pd
 import numpy as np
 from pykrx import stock
@@ -168,6 +169,7 @@ def save_watchlist(watchlist):
 if 'watchlist_loaded' not in st.session_state:
     st.session_state.watchlist = load_watchlist()
     st.session_state.watchlist_loaded = True
+
 # --- 기존 지표 계산 함수들 ---
 @st.cache_data
 def compute_cci(high, low, close, window=20):
@@ -588,19 +590,6 @@ def backtest_strategy(df, conditions_met_dates):
     
     return pd.DataFrame(results)
 
-# --- 메인 UI ---
-st.markdown("""
-### 📊 스마트 필터 시스템 v3.0
-- **중급자 모드**: CCI 또는 거래량 조건, 캔들패턴 + 추세지표 가산점
-- **고급자 모드**: CCI 또는 캔들패턴 필수, 모든 지표 활용
-- **NEW**: 🤖 AI 예측, 📈 백테스팅, 📰 뉴스 분석 기능 추가
-""")
-
-# 사이드바
-with st.sidebar:
-    st.header("⚙️ 설정")
-    st.write("테스트 버전입니다.")
-
 # --- 관심종목 성과 계산 함수 ---
 def calculate_watchlist_performance():
     """관심종목의 7일 성과 계산"""
@@ -955,17 +944,19 @@ class SmartStockFilter:
         try:
             # 최근 5일 수급 데이터
             recent_date = df.index[-1].strftime('%Y%m%d')
-            df_trading = stock.get_market_trading_value_by_date(recent_date, recent_date, code)
-    
-            if not df_trading.empty:
-                inst_net = df_trading['기관합계'].iloc[-1]
-                foreign_net = df_trading['외국인합계'].iloc[-1]
+            code = None  # 이 부분은 호출 시 전달해야 함
+            if code:
+                df_trading = stock.get_market_trading_value_by_date(recent_date, recent_date, code)
         
-                if inst_net > 0 and foreign_net > 0:
-                    score += 20
-                    conditions['수급_동시매수'] = (True, "기관/외인 동시 순매수")
-                    category_scores['거래량_지표']['score'] += 20
-                    category_scores['거래량_지표']['count'] += 1
+                if not df_trading.empty:
+                    inst_net = df_trading['기관합계'].iloc[-1]
+                    foreign_net = df_trading['외국인합계'].iloc[-1]
+            
+                    if inst_net > 0 and foreign_net > 0:
+                        score += 20
+                        conditions['수급_동시매수'] = (True, "기관/외인 동시 순매수")
+                        category_scores['거래량_지표']['score'] += 20
+                        category_scores['거래량_지표']['count'] += 1
         except:
             pass  # 오류 무시
             
@@ -1010,9 +1001,21 @@ class SmartStockFilter:
         
         return base_grade
 
-# 사이드바 계속
+# --- 메인 UI ---
+st.markdown("""
+### 📊 스마트 필터 시스템 v3.0
+- **중급자 모드**: CCI 또는 거래량 조건, 캔들패턴 + 추세지표 가산점
+- **고급자 모드**: CCI 또는 캔들패턴 필수, 모든 지표 활용
+- **NEW**: 🤖 AI 예측, 📈 백테스팅, 📰 뉴스 분석 기능 추가
+- **🎯 CCI 돌파 직전 우선 검색**: CCI가 MA선을 돌파하기 직전인 종목을 최우선으로 찾아줍니다
+""")
+
+# 사이드바
 with st.sidebar:
-    # 모드 선택 - key 추가로 경고 해결
+    st.header("⚙️ 설정")
+    st.write("테스트 버전입니다.")
+    
+    # 모드 선택
     mode = st.radio(
         "🎯 투자 스타일",
         ["중급자 (균형형)", "고급자 (공격형)"],
@@ -1027,13 +1030,13 @@ with st.sidebar:
     # 조건 설정
     min_volume = st.number_input(
         "📊 최소 거래량", 
-        value=300000 if filter_mode == 'intermediate' else 200000,  # 더 낮춤
+        value=300000 if filter_mode == 'intermediate' else 200000,
         step=50000
     )
     
     min_market_cap = st.number_input(
         "💰 최소 시가총액 (억원)", 
-        value=300 if filter_mode == 'intermediate' else 200,  # 더 낮춤
+        value=300 if filter_mode == 'intermediate' else 200,
         step=100
     ) * 100_000_000
     
@@ -1041,7 +1044,7 @@ with st.sidebar:
     search_limit = st.slider(
         "🔍 검색 종목 수",
         50, 500, 
-        value=150,  # 기본값 상향
+        value=150,
         step=50,
         help="많을수록 정확하지만 느려집니다"
     )
@@ -1051,13 +1054,13 @@ with st.sidebar:
         target_grade = st.select_slider(
             "🎖️ 목표 등급",
             options=['C', 'B', 'B+', 'A', 'A+'],
-            value='B'  # 기본값을 B로 낮춤
+            value='B'
         )
     else:
         target_grade = st.select_slider(
             "🎖️ 목표 등급",
             options=['B', 'B+', 'A', 'A+', 'S', 'S+'],
-            value='A'  # 기본값을 A로 낮춤
+            value='A'
         )
     
     # 빠른 검색 옵션
@@ -1069,7 +1072,7 @@ with st.sidebar:
     condition_strictness = st.radio(
         "📏 조건 엄격도",
         ["느슨함", "보통", "엄격함"],
-        index=0,  # 기본값: 느슨함
+        index=0,
         help="느슨함: 더 많은 종목 검색, 엄격함: 정확한 조건만"
     )
     
@@ -1172,14 +1175,14 @@ if st.button("🔍 스마트 검색 실행", type="primary"):
                         continue
                     
                     # 빠른 필터링: 거래량이 너무 적으면 스킵
-                    if df['Volume'].iloc[-1] < min_volume * 0.3:  # 더 낮춤
+                    if df['Volume'].iloc[-1] < min_volume * 0.3:
                         continue
                     
                     result = smart_filter.evaluate_stock(df, min_volume, min_market_cap)
                     
-                    if result and result['score'] >= min_score:  # 최소 점수 체크
-                        # 목표 등급 확인 (더 유연하게)
-                        result_grade = result['grade'].replace('+', '')  # A+ → A로 변환
+                    if result and result['score'] >= min_score:
+                        # 목표 등급 확인
+                        result_grade = result['grade'].replace('+', '')
                         target_grade_clean = target_grade.replace('+', '')
                         
                         grade_order = ['C', 'B', 'A', 'S']
@@ -1223,17 +1226,16 @@ if st.button("🔍 스마트 검색 실행", type="primary"):
                                 'category_scores': result['category_scores'],
                                 'ai_prediction': ai_prediction,
                                 'ai_accuracy': ai_accuracy,
-                                'df': df  # 백테스팅용
+                                'df': df
                             })
                             
                             # 목표 개수 도달 시 조기 종료
-                            if filter_mode == 'intermediate' and len(results) >= 20:  # 10 → 20
+                            if filter_mode == 'intermediate' and len(results) >= 20:
                                 break
-                            elif filter_mode == 'advanced' and len(results) >= 30:  # 20 → 30
+                            elif filter_mode == 'advanced' and len(results) >= 30:
                                 break
                 
                 except Exception as e:
-                    # 오류 발생 시 스킵
                     continue
             
             # 충분한 결과가 나왔으면 중단
@@ -1254,7 +1256,7 @@ if st.session_state.show_results and st.session_state.search_results is not None
     if results:
         st.success(f"✅ {len(results)}개 종목이 조건을 충족했습니다!")
         
-        # 등급별 정렬 (수정: 같은 등급 내에서 점수 순으로 정렬)
+        # 등급별 정렬
         results.sort(key=lambda x: (x['grade'], x['score']), reverse=True)
         
         # 등급별 그룹화
@@ -1276,14 +1278,14 @@ if st.session_state.show_results and st.session_state.search_results is not None
             
             # 요약 테이블
             summary_data = []
-            for stock in stocks[:10]:  # 각 등급당 최대 10개
+            for stock in stocks[:10]:
                 # 주요 충족 조건 요약
                 main_conditions = []
                 for cond_name, (satisfied, _) in stock['conditions'].items():
                     if satisfied and any(key in cond_name for key in ['CCI', '캔들', 'MA', '52주']):
                         main_conditions.append(cond_name.split('_')[0])
                 
-                # 매수 추천 분석 (CCI 돌파 직전 우선순위 반영)
+                # 매수 추천 분석
                 buy_rec = analyze_buy_recommendation(stock, stock['name'])
                 
                 # CCI 돌파 직전인 경우 특별 표시
@@ -1309,13 +1311,12 @@ if st.session_state.show_results and st.session_state.search_results is not None
                     '점수': stock['score'],
                     '매수추천': recommendation,
                     'AI예측': ai_pred_str,
-                    '주요신호': ', '.join(main_conditions[:3])  # 상위 3개만
+                    '주요신호': ', '.join(main_conditions[:3])
                 })
             
             df_summary = pd.DataFrame(summary_data)
             
             # 관심종목 추가 버튼을 각 행에 추가
-            # 폼을 사용한 관심종목 추가
             for idx, row in df_summary.iterrows():
                 with st.form(key=f"form_{row['코드']}_{grade}_{idx}"):
                     col1, col2, col3, col4, col5, col6, col7, col8, col9, col10, col11 = st.columns([2, 1.5, 1, 1.5, 1, 1.5, 1, 1.5, 2, 2, 1])
@@ -1326,52 +1327,6 @@ if st.session_state.show_results and st.session_state.search_results is not None
                         st.write(row['섹터'])
                     with col3:
                         st.write(row['코드'])
-                    with col4:
-                        if stock.get('success_reason') == '매수가 대비':
-                            st.write(f"수익률: {stock.get('return_rate', 0):+.2f}%")
-                        else:
-                            st.write(f"최저가 대비: {stock.get('rise_from_low', 0):+.2f}%")
-                    with col5:
-                        st.write(f"✅ {stock.get('success_reason', '성공')}")
-        else:
-            st.info("아직 성공한 종목이 없습니다.")
-    
-    with tab3:
-        # 전체 통계
-        total_stocks = len(st.session_state.watchlist)
-        watching = len([s for s in st.session_state.watchlist if s['status'] == 'watching'])
-        success = len([s for s in st.session_state.watchlist if s['status'] == 'success'])
-        
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("전체 종목", total_stocks)
-        with col2:
-            st.metric("관찰 중", watching)
-        with col3:
-            st.metric("성공", success)
-        
-        # 섹터별 분포
-        if st.session_state.watchlist:
-            st.subheader("📊 관심종목 섹터별 분포")
-            sector_dist = {}
-            for stock in st.session_state.watchlist:
-                sector = stock.get('sector', '기타')
-                sector_dist[sector] = sector_dist.get(sector, 0) + 1
-            
-            sector_dist_df = pd.DataFrame(list(sector_dist.items()), columns=['섹터', '종목수'])
-            st.bar_chart(sector_dist_df.set_index('섹터')['종목수'])
-else:
-    st.info("관심종목이 없습니다. 종목 검색 후 ➕ 버튼을 눌러 추가하세요.")
-
-# 푸터
-st.markdown("---")
-st.caption("""
-💡 **투자 유의사항**
-- 모든 투자 결정은 본인의 책임입니다.
-- AI 예측과 백테스팅은 참고용입니다.
-- 프로그램 버전: 3.0 (AI 예측, 백테스팅, 뉴스 분석 추가)
-- 개발자: AI Assistant
-""")
                     with col4:
                         st.write(row['현재가'])
                     with col5:
@@ -1516,13 +1471,13 @@ st.caption("""
                                 cci = compute_cci(df['High'], df['Low'], df['Close'])
                                 cci_ma = compute_cci_ma(cci)
                                 
-                                for i in range(1, len(cci)-20):  # 최근 20일 제외
+                                for i in range(1, len(cci)-20):
                                     if cci.iloc[i-1] < cci_ma.iloc[i-1] and cci.iloc[i] >= cci_ma.iloc[i]:
                                         backtest_dates.append(df.index[i])
                                 
                                 if backtest_dates:
                                     # 백테스트 실행
-                                    backtest_results = backtest_strategy(df, backtest_dates[-10:])  # 최근 10개만
+                                    backtest_results = backtest_strategy(df, backtest_dates[-10:])
                                     
                                     if not backtest_results.empty:
                                         # 수익률 통계
@@ -1556,7 +1511,7 @@ st.caption("""
                                 news_items = get_stock_news(stock['name'])
                                 
                                 if news_items:
-                                    for news in news_items[:3]:  # 상위 3개만
+                                    for news in news_items[:3]:
                                         st.markdown(f"**[{news['title']}]({news['link']})**")
                                         st.caption(f"{news['date']}")
                                         if news['description']:
@@ -1577,10 +1532,11 @@ st.caption("""
         2. 최소 거래량/시가총액 낮추기
         3. 검색 종목 수 늘리기 (200~300개)
         4. 목표 등급 낮추기 (B 또는 C)
-        5. 고급자 모드 시도
+        5. CCI 돌파 직전 감지 범위 늘리기 (7~10)
+        6. 고급자 모드 시도
         """)
 
-# 섹터별 분석 섹션 추가
+# 섹터별 분석 섹션
 st.markdown("---")
 st.header("🏢 섹터별 분석")
 
@@ -1622,7 +1578,7 @@ if st.button("📊 섹터별 종목 현황 보기", key="sector_analysis"):
                 
                 # 종목 리스트를 테이블로 표시
                 display_data = []
-                for stock in sector_stock_list[:20]:  # 상위 20개만 표시
+                for stock in sector_stock_list[:20]:
                     display_data.append({
                         '종목명': stock['name'],
                         '종목코드': stock['code']
@@ -1704,3 +1660,5 @@ if st.session_state.watchlist:
                 with col3:
                     st.write(f"매수가: {stock['price']:,.0f}")
                 with col4:
+                    if stock.get('success_reason') == '매수가 대비':
+                        st.write(f"수익률: {stock.get('return_rate', 0):+
