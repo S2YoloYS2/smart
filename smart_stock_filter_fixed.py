@@ -1372,6 +1372,7 @@ st.caption("""
 - 프로그램 버전: 3.0 (AI 예측, 백테스팅, 뉴스 분석 추가)
 - 개발자: AI Assistant
 """)
+                    with col4:
                         st.write(row['현재가'])
                     with col5:
                         st.write(row['전일비'])
