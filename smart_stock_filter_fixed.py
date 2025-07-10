@@ -750,46 +750,45 @@ class SmartStockFilter:
         }
         
         # 1. CCI 조건 체크 ― ★ near-cross(직전 교차) 로직 추가 ★
-    try:
-        cci = compute_cci(df['High'], df['Low'], df['Close'])
-        cci_ma = compute_cci_ma(cci)
+        try:
+            cci = compute_cci(df['High'], df['Low'], df['Close'])
+            cci_ma = compute_cci_ma(cci)
+            if len(cci) >= 2:
+                c_cur, c_prev = cci.iloc[-1], cci.iloc[-2]
+                m_cur, m_prev = cci_ma.iloc[-1], cci_ma.iloc[-2]
+                gap = m_cur - c_cur   # +면 CCI 아래
 
-        if len(cci) >= 2:
-            curr_cci, prev_cci = cci.iloc[-1], cci.iloc[-2]
-            curr_ma,  prev_ma  = cci_ma.iloc[-1], cci_ma.iloc[-2]
-            diff = curr_ma - curr_cci      # MA – CCI (+면 CCI가 아래)
+                # 1‑A 직전 교차 (아직 교차 전 & gap ≤ 임계 & 상승 중)
+                if (c_prev < m_prev and c_cur < m_cur and 0 < gap <= self.NC_THRESH and c_cur > c_prev):
+                    score += 40
+                    conditions['CCI_직전교차'] = (True, f"CCI {c_cur:.1f}, MA {m_cur:.1f}, gap={gap:.1f} 직전 교차")
+                    cats['CCI_조건']['score'] += 40; cats['CCI_조건']['count'] += 1; cats['CCI_조건']['conditions'].append('CCI_직전교차')
 
-        # 1‑A 직전 교차 (아직 교차 전 & gap ≤ 임계 & 상승 중)
-          if (c_prev < m_prev and c_cur < m_cur and 0 < gap <= self.NC_THRESH and c_cur > c_prev):
-                score += 40
-                conditions['CCI_직전교차'] = (True, f"CCI {c_cur:.1f}, MA {m_cur:.1f}, gap={gap:.1f} 직전 교차")
-                cats['CCI_조건']['score'] += 40; cats['CCI_조건']['count'] += 1; cats['CCI_조건']['conditions'].append('CCI_직전교차')
+                # 1‑B 골든크로스 완료
+                elif c_prev < m_prev and c_cur >= m_cur and m_cur < 0:
+                    score += 35
+                    conditions['CCI_교차'] = (True, f"CCI({c_prev:.1f}→{c_cur:.1f}) 골든크로스")
+                    cats['CCI_조건']['score'] += 35; cats['CCI_조건']['count'] += 1; cats['CCI_조건']['conditions'].append('CCI_교차')
 
-            # 1‑B 골든크로스 완료
-            elif c_prev < m_prev and c_cur >= m_cur and m_cur < 0:
-                score += 35
-                conditions['CCI_교차'] = (True, f"CCI({c_prev:.1f}→{c_cur:.1f}) 골든크로스")
-                cats['CCI_조건']['score'] += 35; cats['CCI_조건']['count'] += 1; cats['CCI_조건']['conditions'].append('CCI_교차')
+                # 1‑C MA 접근 (‑60까지 완화)
+                elif c_cur < m_cur and c_cur > c_prev and m_cur < 0 and c_cur >= -60:
+                    score += 30
+                    conditions['CCI_접근'] = (True, f"CCI({c_cur:.1f}) MA 접근중")
+                    cats['CCI_조건']['score'] += 30; cats['CCI_조건']['count'] += 1; cats['CCI_조건']['conditions'].append('CCI_접근')
 
-            # 1‑C MA 접근 (‑60까지 완화)
-            elif c_cur < m_cur and c_cur > c_prev and m_cur < 0 and c_cur >= -60:
-                score += 30
-                conditions['CCI_접근'] = (True, f"CCI({c_cur:.1f}) MA 접근중")
-                cats['CCI_조건']['score'] += 30; cats['CCI_조건']['count'] += 1; cats['CCI_조건']['conditions'].append('CCI_접근')
+                # 1‑D 상승 전환
+                elif c_prev < -50 and c_cur > c_prev and (c_cur - c_prev) > 5:
+                    score += 25
+                    conditions['CCI_상승전환'] = (True, f"CCI({c_prev:.1f}→{c_cur:.1f}) 상승 전환")
+                    cats['CCI_조건']['score'] += 25; cats['CCI_조건']['count'] += 1; cats['CCI_조건']['conditions'].append('CCI_상승전환')
 
-            # 1‑D 상승 전환
-            elif c_prev < -50 and c_cur > c_prev and (c_cur - c_prev) > 5:
-                score += 25
-                conditions['CCI_상승전환'] = (True, f"CCI({c_prev:.1f}→{c_cur:.1f}) 상승 전환")
-                cats['CCI_조건']['score'] += 25; cats['CCI_조건']['count'] += 1; cats['CCI_조건']['conditions'].append('CCI_상승전환')
-
-            # 1‑E 과매도
-            elif c_cur < -50:
-                score += 15
-                conditions['CCI_과매도'] = (True, f"CCI({c_cur:.1f}) 과매도 구간")
-                cats['CCI_조건']['score'] += 15; cats['CCI_조건']['count'] += 1; cats['CCI_조건']['conditions'].append('CCI_과매도')
-            except Exception:
-                pass    
+                # 1‑E 과매도
+                elif c_cur < -50:
+                    score += 15
+                    conditions['CCI_과매도'] = (True, f"CCI({c_cur:.1f}) 과매도 구간")
+                    cats['CCI_조건']['score'] += 15; cats['CCI_조건']['count'] += 1; cats['CCI_조건']['conditions'].append('CCI_과매도')
+        except Exception:
+            pass
         
         # 2. 캔들 패턴 체크
         try:
