@@ -1061,17 +1061,8 @@ with st.sidebar:
         )
     
     # 빠른 검색 옵션
-    quick_search = st.checkbox("⚡ 빠른 검색 모드", value=True, help="KOSPI 상위 종목만 검색")
-    
-    # CCI 돌파 직전 감지 임계값
     st.markdown("---")
-    cci_threshold = st.slider(
-        "🎯 CCI 돌파 직전 감지 범위",
-        1.0, 10.0, 
-        value=5.0,
-        step=0.5,
-        help="CCI와 MA 사이 거리 (작을수록 엄격)"
-    )
+    quick_search = st.checkbox("⚡ 빠른 검색 모드", value=True, help="KOSPI 상위 종목만 검색")
     
     # 조건 엄격도
     st.markdown("---")
@@ -1080,6 +1071,17 @@ with st.sidebar:
         ["느슨함", "보통", "엄격함"],
         index=0,  # 기본값: 느슨함
         help="느슨함: 더 많은 종목 검색, 엄격함: 정확한 조건만"
+    )
+    
+    # CCI 돌파 직전 감지 임계값
+    st.markdown("---")
+    st.subheader("🎯 CCI 설정")
+    cci_threshold = st.slider(
+        "CCI 돌파 직전 감지 범위",
+        1.0, 10.0, 
+        value=5.0,
+        step=0.5,
+        help="CCI와 MA 사이 거리 (작을수록 엄격하게 돌파 직전만 감지)"
     )
     
     # 섹터 필터 추가
