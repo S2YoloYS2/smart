@@ -760,30 +760,29 @@ class SmartStockFilter:
                 gap = m_cur - c_cur   # +면 CCI 아래
 
                 # 1-A. 직전 교차(아직 교차 前 & gap ≤ 임계 + CCI 상승 중)
-                # ------------------------------------------------------
-                c_cur, c_prev  = cci.iloc[-1],  cci.iloc[-2]       # 빨간선 CCI
-                m_cur, m_prev  = cci_ma.iloc[-1], cci_ma.iloc[-2]  # 노란선 MA
-                gap            = m_cur - c_cur                     # 양수면 아직 교차 前
+                try:
+                    if (c_prev < m_prev and c_cur < m_cur        # 전 봉/이번 봉 모두 MA 아래
+                        and 0 < gap <= self.NC_THRESH            # gap(절대값) ≤ 임계값
+                        and c_cur > c_prev):                     # CCI가 위로 움직이며 '직전교차'
 
-                if (c_prev < m_prev           # 전 봉에서도 CCI가 MA 아래
-                        and c_cur  < m_cur    # 이번 봉도 아직 아래
-                        and 0 < gap <= self.NC_THRESH   # ★ gap이 임계값 이하
-                        and c_cur > c_prev):  # CCI가 위로 움직여야 ‘직전교차’
-                    score += 40
-                    conditions['CCI_직전교차'] = (
-                        True,
-                        f"CCI({c_cur:.1f}), MA({m_cur:.1f}), gap={gap:.1f}pt 직전 교차"
-                    )
-                    category_scores['CCI_조건']['score']  += 40
-                    category_scores['CCI_조건']['count']  += 1
-                    category_scores['CCI_조건']['conditions'].append('CCI_직전교차')
-         st.toast(
-            f"DEBUG CCI_직전교차 hit={ 'CCI_직전교차' in conditions }  "
-            f"gap={gap:.1f}"
-        )
+                        score += 40
+                        conditions['CCI_직전교차'] = (
+                            True,
+                            f"CCI({c_cur:.1f}), MA({m_cur:.1f}), gap={gap:.1f}pt 직전 교차"
+                        )
+                        category_scores['CCI_조건']['score'] += 40
+                        category_scores['CCI_조건']['count'] += 1
+                        category_scores['CCI_조건']['conditions'].append('CCI_직전교차')
 
-        except Exception as e:
-            pass  
+                # ──────── DEBUG 메시지 ────────
+                st.toast(
+                    f"DEBUG CCI_직전교차 hit={ 'CCI_직전교차' in conditions } "
+                    f"gap={gap:.1f}"
+                )
+                # ─────────────────────────────
+
+        except Exception as e:        # ← ① try: 와 같은 깊이
+            pass 
                 # ---------------------------  끝 ---------------------------
 
                 # 1‑B 골든크로스 완료
