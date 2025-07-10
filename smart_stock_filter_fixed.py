@@ -730,8 +730,11 @@ def analyze_buy_recommendation(result, stock_name):
 class SmartStockFilter:
     """중급자/고급자용 스마트 필터"""
     
-    def __init__(self, mode='intermediate'):
-        self.mode = mode  # 'intermediate' or 'advanced'
+    def __init__(self,
+             mode: str = "intermediate",
+             near_cross_thresh: float = 7.0):     # ← 새 임계값 기본 7pt
+        self.mode = mode
+        self.NC_THRESH = abs(near_cross_thresh)
         
     def evaluate_stock(self, df, min_volume, min_market_cap):
         """종목 평가 - 조건 완화 버전"""
