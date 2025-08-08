@@ -953,9 +953,8 @@ class SmartStockFilter:
 # --- 메인 UI ---
 st.markdown("""
 ### 📊 스마트 필터 시스템 v3.0
-- **중급자 모드**: CCI 또는 거래량 조건, 캔들패턴 + 추세지표 가산점
-- **고급자 모드**: CCI 또는 캔들패턴 필수, 모든 지표 활용
-- **NEW**: 🤖 AI 예측, 📈 백테스팅, 📰 뉴스 분석 기능 추가
+- **종목 검색 조**: CCI 또는 캔들패턴 필수, 모든 지표 활용
+- **NEW**: 🤖 AI 예측, 📈 백테스팅
 - **🎯 CCI 돌파 직전 우선 검색**: CCI가 MA선을 돌파하기 직전인 종목을 최우선으로 찾아줍니다
 """)
 
@@ -1093,12 +1092,8 @@ if st.button("🔍 스마트 검색 실행", type="primary"):
                     
                     if result and result['score'] >= min_score:
                         # 목표 등급 확인
-                        result_grade = result['grade'].replace('+', '')
-                        target_grade_clean = target_grade.replace('+', '')
-                        
-                        grade_order = ['C', 'B', 'A', 'S']
-                        
-                        if grade_order.index(result_grade) >= grade_order.index(target_grade_clean):
+                        if result['grade'].replace('+', '') in ['A', 'S']:
+                            
                             # 현재가 정보 추가
                             current_price = df['Close'].iloc[-1]
                             prev_close = df['Close'].iloc[-2]
@@ -1409,28 +1404,7 @@ if st.session_state.show_results and st.session_state.search_results is not None
                                 st.error("백테스팅 중 오류가 발생했습니다.")
                         else:
                             st.info("백테스팅이 비활성화되어 있습니다.")
-                    
-                    with tab4:
-                        if enable_news:
-                            st.subheader("📰 최신 뉴스")
-                            
-                            with st.spinner("뉴스를 가져오는 중..."):
-                                news_items = get_stock_news(stock['name'])
-                                
-                                if news_items:
-                                    for news in news_items[:3]:
-                                        st.markdown(f"**[{news['title']}]({news['link']})**")
-                                        st.caption(f"{news['date']}")
-                                        if news['description']:
-                                            st.write(news['description'])
-                                        st.markdown("---")
-                                else:
-                                    st.info("최신 뉴스를 찾을 수 없습니다.")
-                        else:
-                            st.info("뉴스 분석이 비활성화되어 있습니다.")
-                    
-                    st.markdown("---")
-    
+                                            
     else:
         st.warning("조건을 충족하는 종목이 없습니다.")
         st.info("""
@@ -1561,4 +1535,5 @@ st.caption("""
 - 프로그램 버전: 3.0 (CCI 돌파 직전 우선 검색 기능 추가)
 - 개발자: AI Assistant
 """)
+
 
