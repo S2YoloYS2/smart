@@ -750,6 +750,13 @@ with st.sidebar:
     enable_ai = st.checkbox("AI 예측 활성화", value=True)
     enable_backtest = st.checkbox("백테스팅 활성화", value=True)
 
+    with st.sidebar:
+    if st.button("🧹 캐시 초기화"):
+        st.cache_data.clear()
+        st.cache_resource.clear()
+        st.experimental_rerun()
+
+
 # AI 예측기 초기화
 ai_predictor = EnhancedAIPredictor()
 
@@ -1003,3 +1010,4 @@ st.caption("""
 - 백테스팅 신뢰도 60% 이상일 때 참고하세요
 - 버전: 4.0 (한국/미국 통합)
 """)
+
