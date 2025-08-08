@@ -48,12 +48,9 @@ import warnings
 import json
 from pathlib import Path
 import time
-import requests
-from bs4 import BeautifulSoup
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-import urllib.parse
 
 warnings.filterwarnings('ignore')
 
@@ -439,54 +436,6 @@ def get_top_volume_stocks(today_str, top_n=200):
             
     except Exception as e:
         print(f"거래대금 상위 종목 가져오기 실패: {str(e)}")
-        return []
-
-# --- 뉴스 크롤링 함수 ---
-@st.cache_data(ttl=3600)
-def get_stock_news(stock_name, limit=5):
-    """네이버 금융에서 종목 뉴스 크롤링"""
-    try:
-        # URL 인코딩
-        encoded_name = urllib.parse.quote(stock_name)
-        url = f"https://search.naver.com/search.naver?where=news&query={encoded_name}+주가"
-        
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
-        
-        response = requests.get(url, headers=headers, timeout=5)
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        news_items = []
-        news_list = soup.select('div.news_area')[:limit]
-        
-        for item in news_list:
-            try:
-                title_elem = item.select_one('a.news_tit')
-                if title_elem:
-                    title = title_elem.text.strip()
-                    link = title_elem.get('href', '')
-                    
-                    # 날짜 추출
-                    date_elem = item.select_one('span.info')
-                    date = date_elem.text.strip() if date_elem else '날짜 없음'
-                    
-                    # 요약 추출
-                    desc_elem = item.select_one('div.dsc_txt')
-                    description = desc_elem.text.strip()[:100] + '...' if desc_elem else ''
-                    
-                    news_items.append({
-                        'title': title,
-                        'link': link,
-                        'date': date,
-                        'description': description
-                    })
-            except:
-                continue
-        
-        return news_items
-    except Exception as e:
-        print(f"뉴스 크롤링 실패: {str(e)}")
         return []
 
 # --- AI 예측 모델 함수 ---
@@ -1016,14 +965,7 @@ with st.sidebar:
     st.write("테스트 버전입니다.")
     
     # 모드 선택
-    mode = st.radio(
-        "🎯 투자 스타일",
-        ["중급자 (균형형)", "고급자 (공격형)"],
-        help="중급자는 안정성, 고급자는 수익성 중심",
-        key="investment_mode"
-    )
-    
-    filter_mode = 'intermediate' if "중급자" in mode else 'advanced'
+    filter_mode = 'advanced'
     
     st.markdown("---")
     
@@ -1053,12 +995,6 @@ with st.sidebar:
     if filter_mode == 'intermediate':
         target_grade = st.select_slider(
             "🎖️ 목표 등급",
-            options=['C', 'B', 'B+', 'A', 'A+'],
-            value='B'
-        )
-    else:
-        target_grade = st.select_slider(
-            "🎖️ 목표 등급",
             options=['B', 'B+', 'A', 'A+', 'S', 'S+'],
             value='A'
         )
@@ -1066,16 +1002,7 @@ with st.sidebar:
     # 빠른 검색 옵션
     st.markdown("---")
     quick_search = st.checkbox("⚡ 빠른 검색 모드", value=True, help="KOSPI 상위 종목만 검색")
-    
-    # 조건 엄격도
-    st.markdown("---")
-    condition_strictness = st.radio(
-        "📏 조건 엄격도",
-        ["느슨함", "보통", "엄격함"],
-        index=0,
-        help="느슨함: 더 많은 종목 검색, 엄격함: 정확한 조건만"
-    )
-    
+        
     # CCI 돌파 직전 감지 임계값
     st.markdown("---")
     st.subheader("🎯 CCI 설정")
@@ -1086,24 +1013,13 @@ with st.sidebar:
         step=0.5,
         help="CCI와 MA 사이 거리 (작을수록 엄격하게 돌파 직전만 감지)"
     )
-    
-    # 섹터 필터 추가
-    st.markdown("---")
-    st.subheader("🏢 섹터 필터")
-    selected_sectors = st.multiselect(
-        "특정 섹터만 검색",
-        options=list(SECTOR_MAPPING.keys()),
-        default=[],
-        help="선택하지 않으면 전체 섹터 검색"
-    )
-    
+        
     # AI 기능 활성화
     st.markdown("---")
     st.subheader("🤖 AI 기능")
     enable_ai = st.checkbox("AI 예측 활성화", value=True)
     enable_backtest = st.checkbox("백테스팅 활성화", value=True)
-    enable_news = st.checkbox("뉴스 분석 활성화", value=True)
-
+    
 # 검색 버튼
 if st.button("🔍 스마트 검색 실행", type="primary"):
     st.session_state.show_results = True
@@ -1149,12 +1065,7 @@ if st.button("🔍 스마트 검색 실행", type="primary"):
         total_codes = len(top_volume_codes)
         
         # 조건 엄격도에 따른 최소 점수 조정
-        min_score_map = {
-            "느슨함": {"intermediate": 30, "advanced": 40},
-            "보통": {"intermediate": 50, "advanced": 60},
-            "엄격함": {"intermediate": 70, "advanced": 80}
-        }
-        min_score = min_score_map[condition_strictness][filter_mode]
+        min_score = 80  # advanced + 엄격 고정
         
         for batch_idx in range(0, total_codes, batch_size):
             batch_codes = top_volume_codes[batch_idx:batch_idx + batch_size]
@@ -1195,11 +1106,7 @@ if st.button("🔍 스마트 검색 실행", type="primary"):
                             
                             # 섹터 정보 추가
                             stock_sector = get_stock_sector(code_name_map.get(code, f"Unknown({code})"))
-                            
-                            # 섹터 필터링
-                            if selected_sectors and stock_sector not in selected_sectors:
-                                continue
-                            
+                                                       
                             # AI 예측 추가
                             ai_prediction = None
                             ai_accuracy = None
@@ -1370,7 +1277,7 @@ if st.session_state.show_results and st.session_state.search_results is not None
                     st.markdown(f"### {stock['name']} ({stock['code']}) - {stock['sector']}")
                     
                     # 탭으로 구성
-                    tab1, tab2, tab3, tab4 = st.tabs(["📊 기술적 분석", "🤖 AI 예측", "📈 백테스팅", "📰 최신 뉴스"])
+                    tab1, tab2, tab3 = st.tabs(["📊 기술적 분석", "🤖 AI 예측", "📈 백테스팅"])
                     
                     with tab1:
                         # 매수 추천 분석 상세
@@ -1528,64 +1435,11 @@ if st.session_state.show_results and st.session_state.search_results is not None
         st.warning("조건을 충족하는 종목이 없습니다.")
         st.info("""
         💡 **해결 방법:**
-        1. 조건 엄격도를 '느슨함'으로 설정
-        2. 최소 거래량/시가총액 낮추기
-        3. 검색 종목 수 늘리기 (200~300개)
-        4. 목표 등급 낮추기 (B 또는 C)
-        5. CCI 돌파 직전 감지 범위 늘리기 (7~10)
-        6. 고급자 모드 시도
+        1. 최소 거래량/시가총액 낮추기
+        2. 검색 종목 수 늘리기 (200~300개)
+        3. 목표 등급 낮추기 (B 또는 A)
+        4. CCI 돌파 직전 감지 범위(슬라이더) 완화하기
         """)
-
-# 섹터별 분석 섹션
-st.markdown("---")
-st.header("🏢 섹터별 분석")
-
-if st.button("📊 섹터별 종목 현황 보기", key="sector_analysis"):
-    with st.spinner("섹터별 종목 분석 중..."):
-        today_str = get_most_recent_trading_day()
-        if today_str:
-            name_code_map, code_name_map = get_name_code_map()
-            
-            # 섹터별 종목 분류
-            sector_stocks = {}
-            for code, name in code_name_map.items():
-                sector = get_stock_sector(name)
-                if sector not in sector_stocks:
-                    sector_stocks[sector] = []
-                sector_stocks[sector].append({'code': code, 'name': name})
-            
-            # 섹터별 통계 표시
-            st.subheader("📈 섹터별 종목 분포")
-            
-            # 섹터별 종목 수 계산
-            sector_counts = {sector: len(stocks) for sector, stocks in sector_stocks.items()}
-            sector_df = pd.DataFrame(list(sector_counts.items()), columns=['섹터', '종목수'])
-            sector_df = sector_df.sort_values('종목수', ascending=False)
-            
-            # 차트로 표시
-            col1, col2 = st.columns([2, 1])
-            with col1:
-                st.bar_chart(sector_df.set_index('섹터')['종목수'])
-            with col2:
-                st.dataframe(sector_df, height=400)
-            
-            # 섹터별 상세 정보
-            selected_sector = st.selectbox("섹터 선택", sector_df['섹터'].tolist())
-            
-            if selected_sector:
-                st.subheader(f"📌 {selected_sector} 섹터 종목 목록")
-                sector_stock_list = sector_stocks[selected_sector]
-                
-                # 종목 리스트를 테이블로 표시
-                display_data = []
-                for stock in sector_stock_list[:20]:
-                    display_data.append({
-                        '종목명': stock['name'],
-                        '종목코드': stock['code']
-                    })
-                
-                st.dataframe(pd.DataFrame(display_data), height=400)
-                st.info(f"💡 {selected_sector} 섹터 총 {len(sector_stock_list)}개 종목")
 
 # 관심종목 추적 섹션
 st.markdown("---")
@@ -1707,3 +1561,4 @@ st.caption("""
 - 프로그램 버전: 3.0 (CCI 돌파 직전 우선 검색 기능 추가)
 - 개발자: AI Assistant
 """)
+
