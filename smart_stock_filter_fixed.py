@@ -37,114 +37,65 @@ if not check_password():
 
 import pandas as pd
 import numpy as np
-from pykrx import stock
 from datetime import datetime, timedelta
-import pandas_market_calendars as mcal
-import os
-import mplfinance as mpf
-import matplotlib.pyplot as plt
-import concurrent.futures
 import warnings
 import json
 from pathlib import Path
 import time
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
+
+# 조건부 임포트
+try:
+    from pykrx import stock
+    PYKRX_AVAILABLE = True
+except ImportError:
+    PYKRX_AVAILABLE = False
+    st.warning("pykrx가 설치되지 않았습니다. pip install pykrx")
+
+try:
+    import yfinance as yf
+    YFINANCE_AVAILABLE = True
+except ImportError:
+    YFINANCE_AVAILABLE = False
+    st.warning("yfinance가 설치되지 않았습니다. pip install yfinance")
 
 warnings.filterwarnings('ignore')
 
 # 페이지 설정
 st.set_page_config(page_title="🔍 스마트 주식 필터 Pro", layout="wide")
-st.title("🔍 스마트 주식 필터 Pro v3.0 - AI 예측 & 백테스팅")
+st.title("🔍 스마트 주식 필터 Pro v4.0 - 한국/미국 통합")
 
-# 섹터 분류 데이터 (한국 주식시장 기준)
-SECTOR_MAPPING = {
-    '반도체': ['삼성전자', 'SK하이닉스', 'DB하이텍', '리노공업', '하나마이크론', '원익IPS', '테스', '케이아이엔엑스', '유니테스트', '에스엠코어'],
-    '배터리/2차전지': ['LG에너지솔루션', '삼성SDI', 'LG화학', '에코프로비엠', '에코프로', '포스코퓨처엠', '엘앤에프', '천보', '코스모신소재', '일진머티리얼즈'],
-    '자동차': ['현대차', '기아', '현대모비스', '만도', '화신', '평화산업', '에스엘', '모토닉', '대원강업', '서연이화'],
-    '조선': ['한국조선해양', '삼성중공업', '대우조선해양', 'STX조선해양', '현대미포조선'],
-    '철강': ['포스코홀딩스', '현대제철', '동국제강', '세아제강', '고려제강', '대한제강', '동부제철', 'KG스틸'],
-    '화학': ['LG화학', '롯데케미칼', '한화솔루션', '금호석유', 'SKC', '효성화학', '코오롱인더', '한국석유', '대한유화'],
-    '정유': ['SK이노베이션', 'S-Oil', 'GS', '현대오일뱅크'],
-    '건설': ['삼성물산', '현대건설', 'GS건설', '대우건설', '대림산업', 'DL이앤씨', '호반건설', '금호건설', '계룡건설'],
-    '유통': ['신세계', '롯데쇼핑', '이마트', '현대백화점', 'BGF리테일', 'GS리테일', '이랜드', '하이마트'],
-    '금융': ['KB금융', '신한지주', '하나금융지주', '우리금융지주', '삼성생명', '삼성화재', '현대해상', 'DB손해보험', '한화생명'],
-    '통신': ['SK텔레콤', 'KT', 'LG유플러스', '케이티엠모바일', '티브로드'],
-    '인터넷/게임': ['네이버', '카카오', '엔씨소프트', '넷마블', '크래프톤', '펄어비스', '컴투스', '위메이드', '넥슨게임즈'],
-    '바이오/제약': ['삼성바이오로직스', '셀트리온', '한미약품', '유한양행', '대웅제약', '종근당', '녹십자', '동아에스티', 'SK바이오팜'],
-    '엔터테인먼트': ['하이브', 'SM', 'YG', 'JYP', 'CJ ENM', '스튜디오드래곤', '초이스엔터테인먼트'],
-    '식품/음료': ['CJ제일제당', '오리온', '농심', '롯데제과', '하이트진로', '빙그레', '삼양식품', '동원F&B', '대상'],
-    '화장품': ['아모레퍼시픽', 'LG생활건강', '코스맥스', '한국콜마', '에이블씨엔씨', '토니모리'],
-    '항공': ['대한항공', '아시아나항공', '제주항공', '진에어', '티웨이항공', '에어부산'],
-    '호텔/여행': ['호텔신라', '롯데관광개발', '하나투어', '모두투어', '참좋은여행'],
-    '방송/미디어': ['CJ ENM', 'SBS', 'JTBC스튜디오', '스튜디오드래곤', '키이스트'],
-    '에너지/전력': ['한국전력', '두산에너빌리티', '포스코에너지', 'GS EPS', '지역난방공사']
-}
-
-# 종목별 섹터 찾기 함수
-def get_stock_sector(stock_name):
-    """종목명으로 섹터 찾기"""
-    for sector, stocks in SECTOR_MAPPING.items():
-        for stock in stocks:
-            if stock in stock_name or stock_name in stock:
-                return sector
-    
-    # 키워드 기반 섹터 분류
-    if any(keyword in stock_name for keyword in ['전자', '반도체', '디스플레이', 'OLED']):
-        return '반도체'
-    elif any(keyword in stock_name for keyword in ['배터리', '2차전지', '에너지솔루션', '전지']):
-        return '배터리/2차전지'
-    elif any(keyword in stock_name for keyword in ['자동차', '모빌리티', '부품']):
-        return '자동차'
-    elif any(keyword in stock_name for keyword in ['조선', '중공업', '해양']):
-        return '조선'
-    elif any(keyword in stock_name for keyword in ['제철', '철강', '스틸']):
-        return '철강'
-    elif any(keyword in stock_name for keyword in ['화학', '케미칼', '석유화학']):
-        return '화학'
-    elif any(keyword in stock_name for keyword in ['정유', '오일', '에너지']):
-        return '정유'
-    elif any(keyword in stock_name for keyword in ['건설', '건축', '토목', '산업']):
-        return '건설'
-    elif any(keyword in stock_name for keyword in ['유통', '리테일', '마트', '백화점']):
-        return '유통'
-    elif any(keyword in stock_name for keyword in ['금융', '은행', '증권', '보험', '캐피탈']):
-        return '금융'
-    elif any(keyword in stock_name for keyword in ['통신', '텔레콤', '모바일']):
-        return '통신'
-    elif any(keyword in stock_name for keyword in ['IT', '소프트웨어', '게임', '인터넷']):
-        return '인터넷/게임'
-    elif any(keyword in stock_name for keyword in ['바이오', '제약', '신약', '헬스케어']):
-        return '바이오/제약'
-    elif any(keyword in stock_name for keyword in ['엔터', '연예', '방송', '미디어']):
-        return '엔터테인먼트'
-    elif any(keyword in stock_name for keyword in ['식품', '음료', '제과', 'F&B']):
-        return '식품/음료'
-    elif any(keyword in stock_name for keyword in ['화장품', '뷰티', '코스메틱']):
-        return '화장품'
-    elif any(keyword in stock_name for keyword in ['항공', '에어']):
-        return '항공'
-    elif any(keyword in stock_name for keyword in ['호텔', '리조트', '관광', '여행']):
-        return '호텔/여행'
-    else:
-        return '기타'
+# S&P 500 대표 종목 (섹터별)
+SP500_TICKERS = [
+    # Technology
+    'AAPL', 'MSFT', 'NVDA', 'META', 'GOOGL', 'AMZN', 'TSLA', 'AVGO', 'ORCL', 'ADBE',
+    # Healthcare  
+    'UNH', 'JNJ', 'LLY', 'PFE', 'ABBV', 'MRK', 'TMO', 'ABT', 'CVS', 'AMGN',
+    # Financials
+    'BRK-B', 'JPM', 'V', 'MA', 'BAC', 'WFC', 'GS', 'MS', 'AXP', 'BLK',
+    # Consumer
+    'WMT', 'PG', 'HD', 'KO', 'PEP', 'MCD', 'NKE', 'COST', 'SBUX', 'DIS',
+    # Industrials
+    'UPS', 'RTX', 'BA', 'HON', 'CAT', 'GE', 'LMT', 'MMM', 'DE', 'UNP',
+    # Energy
+    'XOM', 'CVX', 'COP', 'SLB', 'EOG', 'MPC', 'PSX', 'VLO', 'OXY', 'HAL'
+]
 
 # 세션 상태 초기화
-if 'investment_mode' not in st.session_state:
-    st.session_state.investment_mode = "중급자 (균형형)"
-
 if 'watchlist' not in st.session_state:
     st.session_state.watchlist = []
 
 if 'search_results' not in st.session_state:
     st.session_state.search_results = None
 
-if 'show_results' not in st.session_state:
-    st.session_state.show_results = False
+if 'backtest_stats' not in st.session_state:
+    st.session_state.backtest_stats = {'total': 0, 'success': 0, 'fail': 0, 'success_rate': 0}
 
-# 파일 경로 설정 (관심종목 저장용)
+# 파일 경로 설정
 WATCHLIST_FILE = "watchlist.json"
+BACKTEST_FILE = "backtest_results.json"
 
 # 관심종목 로드/저장 함수
 def load_watchlist():
@@ -162,12 +113,29 @@ def save_watchlist(watchlist):
     with open(WATCHLIST_FILE, 'w', encoding='utf-8') as f:
         json.dump(watchlist, f, ensure_ascii=False, indent=2)
 
-# 세션 시작 시 관심종목 로드
-if 'watchlist_loaded' not in st.session_state:
-    st.session_state.watchlist = load_watchlist()
-    st.session_state.watchlist_loaded = True
+# 백테스팅 결과 저장/로드
+def load_backtest_results():
+    """백테스팅 결과 로드"""
+    if Path(BACKTEST_FILE).exists():
+        try:
+            with open(BACKTEST_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except:
+            return {}
+    return {}
 
-# --- 기존 지표 계산 함수들 ---
+def save_backtest_results(results):
+    """백테스팅 결과 저장"""
+    with open(BACKTEST_FILE, 'w', encoding='utf-8') as f:
+        json.dump(results, f, ensure_ascii=False, indent=2)
+
+# 세션 시작 시 데이터 로드
+if 'data_loaded' not in st.session_state:
+    st.session_state.watchlist = load_watchlist()
+    st.session_state.backtest_results = load_backtest_results()
+    st.session_state.data_loaded = True
+
+# --- 기술적 지표 계산 함수들 ---
 @st.cache_data
 def compute_cci(high, low, close, window=20):
     tp = (high + low + close) / 3
@@ -191,12 +159,6 @@ def compute_stoch_mtm(close, k_length, ema_length=10, smooth_period=5):
     return percent_k_scaled, signal_smoothed
 
 @st.cache_data
-def compute_obv(close, volume):
-    obv = pd.Series(0, index=close.index)
-    obv[1:] = (volume[1:] * np.sign(close[1:].diff())).cumsum() + obv[0]
-    return obv
-
-@st.cache_data
 def compute_bollinger_bands(close, window=20, num_std_dev=2):
     mid_band = close.rolling(window=window).mean()
     std_dev = close.rolling(window=window).std()
@@ -216,7 +178,16 @@ def compute_rsi(close, window=14):
     rsi = 100 - (100 / (1 + rs))
     return rsi
 
-# --- 추가 지표 함수들 ---
+@st.cache_data
+def compute_macd(close, fast=12, slow=26, signal=9):
+    """MACD 계산"""
+    ema_fast = close.ewm(span=fast, adjust=False).mean()
+    ema_slow = close.ewm(span=slow, adjust=False).mean()
+    macd = ema_fast - ema_slow
+    macd_signal = macd.ewm(span=signal, adjust=False).mean()
+    macd_diff = macd - macd_signal
+    return macd, macd_signal, macd_diff
+
 @st.cache_data
 def compute_vwap(df, period=20):
     """VWAP - 거래량 가중 평균가격"""
@@ -283,8 +254,6 @@ def detect_candle_patterns(df):
     
     # 이전 캔들 정보
     prev_open = df['Open'].iloc[-2]
-    prev_high = df['High'].iloc[-2]
-    prev_low = df['Low'].iloc[-2]
     prev_close = df['Close'].iloc[-2]
     
     # 몸통과 꼬리 계산
@@ -315,371 +284,236 @@ def detect_candle_patterns(df):
         if three_white:
             patterns['적삼병'] = True
     
-    # 4. 모닝스타 (Morning Star)
-    if len(df) >= 3:
-        if (df['Open'].iloc[-3] > df['Close'].iloc[-3] and  # 첫날 음봉
-            abs(df['Close'].iloc[-2] - df['Open'].iloc[-2]) < body * 0.3 and  # 둘째날 작은 몸통
-            df['Close'].iloc[-1] > df['Open'].iloc[-1] and  # 셋째날 양봉
-            df['Close'].iloc[-1] > (df['Open'].iloc[-3] + df['Close'].iloc[-3]) / 2):  # 첫날 몸통 50% 이상 회복
-            patterns['모닝스타'] = True
-    
     return patterns
 
-# --- 유틸리티 함수들 ---
+# --- 한국 주식 관련 함수들 ---
 @st.cache_data(ttl=3600)
 def get_most_recent_trading_day():
     today = datetime.today()
     
-    # 오늘이 새벽 시간대면 어제로 설정
-    if today.hour < 6:  # 새벽 6시 이전이면
+    if today.hour < 6:
         today = today - timedelta(days=1)
     
-    # 주말인 경우 금요일로 조정
-    if today.weekday() >= 5:  # 토요일(5) 또는 일요일(6)
+    if today.weekday() >= 5:
         days_to_subtract = today.weekday() - 4
         today = today - timedelta(days=days_to_subtract)
     
-    # 최근 거래일 확인 (더 많은 날짜 확인)
-    for i in range(30):  # 7 → 30으로 증가
+    for i in range(30):
         check_date = (today - timedelta(days=i)).strftime('%Y%m%d')
         try:
-            # 해당 날짜에 데이터가 있는지 확인
             test_data = stock.get_market_ticker_list(check_date, market="KOSPI")
             if test_data and len(test_data) > 0:
-                print(f"데이터 확인된 날짜: {check_date}")  # 디버깅용
                 return check_date
-        except Exception as e:
-            print(f"날짜 {check_date} 오류: {str(e)}")  # 디버깅용
+        except:
             continue
     
-    # 모두 실패 시 어제 날짜 강제 반환
     yesterday = datetime.today() - timedelta(days=1)
-    if yesterday.weekday() >= 5:  # 주말이면 금요일로
+    if yesterday.weekday() >= 5:
         days_to_subtract = yesterday.weekday() - 4
         yesterday = yesterday - timedelta(days=days_to_subtract)
     return yesterday.strftime('%Y%m%d')
 
 @st.cache_data(ttl=3600)
-def get_name_code_map():
-    today_str = get_most_recent_trading_day()
-    if today_str is None:
-        return {}, {}
-    
-    name_code = {}
-    code_name = {}
-    
+def get_korean_stock_data(ticker, start_date, end_date):
+    """한국 주식 데이터 조회"""
     try:
-        for market in ['KOSPI', 'KOSDAQ']:
-            try:
-                tickers = stock.get_market_ticker_list(today_str, market=market)
-                for code in tickers:
-                    try:
-                        name = stock.get_market_ticker_name(code)
-                        if name:
-                            name_code[name] = code
-                            code_name[code] = name
-                    except:
-                        continue
-            except:
-                continue
-        
-        return name_code, code_name
+        df = stock.get_market_ohlcv_by_date(start_date, end_date, ticker)
+        if not df.empty:
+            df.index = pd.to_datetime(df.index)
+            df.columns = ['Open', 'High', 'Low', 'Close', 'Volume', 'Change']
+            return df
+        return None
     except:
-        return {}, {}
+        return None
 
 @st.cache_data(ttl=3600)
-def get_ohlcv_df(ticker, start_date_str, end_date_str):
+def get_top_volume_korean_stocks(today_str, top_n=100):
+    """거래대금 상위 한국 종목"""
     try:
-        df_ohlcv = stock.get_market_ohlcv_by_date(start_date_str, end_date_str, ticker)
-        if df_ohlcv.empty:
-            return pd.DataFrame()
-        
-        df_ohlcv.index = pd.to_datetime(df_ohlcv.index)
-        df_ohlcv.columns = ['Open', 'High', 'Low', 'Close', 'Volume', 'Change']
-        
-        try:
-            df_marcap = stock.get_market_cap_by_date(start_date_str, end_date_str, ticker)
-            if not df_marcap.empty:
-                df_marcap.index = pd.to_datetime(df_marcap.index)
-                df_ohlcv = df_ohlcv.join(df_marcap[['시가총액']], how='left')
-                df_ohlcv.rename(columns={'시가총액': 'MarketCap'}, inplace=True)
-            else:
-                df_ohlcv['MarketCap'] = np.nan
-        except:
-            df_ohlcv['MarketCap'] = np.nan
-
-        df_ohlcv['TradingValue'] = df_ohlcv['Close'] * df_ohlcv['Volume']
-        
-        return df_ohlcv
-    except:
-        return pd.DataFrame()
-
-# --- 빠른 필터링을 위한 함수 (수정됨) ---
-@st.cache_data(ttl=3600)
-def get_top_volume_stocks(today_str, top_n=200):
-    """거래대금 상위 종목 빠르게 가져오기"""
-    try:
-        volume_data = []
-        
-        # KOSPI 상위 종목만 (속도 개선)
         df_kospi = stock.get_market_ohlcv_by_ticker(today_str, market="KOSPI")
-        
         if not df_kospi.empty:
-            # 거래대금 계산
             df_kospi['거래대금'] = df_kospi['거래량'] * df_kospi['종가']
-            # 거래대금 상위 종목만 선택
             df_kospi = df_kospi.nlargest(min(top_n, len(df_kospi)), '거래대금')
-            
             return df_kospi.index.tolist()
-        else:
-            return []
-            
-    except Exception as e:
-        print(f"거래대금 상위 종목 가져오기 실패: {str(e)}")
+        return []
+    except:
         return []
 
-# --- AI 예측 모델 함수 ---
-@st.cache_data
-def prepare_features_for_ml(df):
-    """머신러닝을 위한 특징 준비"""
-    features = pd.DataFrame(index=df.index)
-    
-    # 가격 변화율
-    features['returns_1d'] = df['Close'].pct_change(1)
-    features['returns_5d'] = df['Close'].pct_change(5)
-    features['returns_20d'] = df['Close'].pct_change(20)
-    
-    # 이동평균
-    features['ma5'] = df['Close'].rolling(5).mean() / df['Close'] - 1
-    features['ma20'] = df['Close'].rolling(20).mean() / df['Close'] - 1
-    features['ma60'] = df['Close'].rolling(60).mean() / df['Close'] - 1
-    
-    # RSI
-    features['rsi'] = compute_rsi(df['Close'])
-    
-    # 볼린저 밴드
-    _, upper, lower, _ = compute_bollinger_bands(df['Close'])
-    features['bb_position'] = (df['Close'] - lower) / (upper - lower + 1e-9)
-    
-    # 거래량
-    features['volume_ratio'] = df['Volume'] / df['Volume'].rolling(20).mean()
-    
-    # CCI
-    features['cci'] = compute_cci(df['High'], df['Low'], df['Close'])
-    
-    # 타겟: 5일 후 상승 여부
-    features['target'] = (df['Close'].shift(-5) > df['Close']).astype(int)
-    
-    return features.dropna()
-
-@st.cache_data
-def train_ai_model(df):
-    """AI 예측 모델 학습"""
-    features = prepare_features_for_ml(df)
-    
-    if len(features) < 100:
+# --- 미국 주식 관련 함수들 ---
+@st.cache_data(ttl=3600)
+def get_us_stock_data(ticker, period="3mo"):
+    """미국 주식 데이터 조회"""
+    try:
+        stock_data = yf.Ticker(ticker)
+        df = stock_data.history(period=period)
+        if not df.empty:
+            info = stock_data.info
+            return df, info
         return None, None
+    except:
+        return None, None
+
+# --- 강화된 AI 예측 모델 ---
+class EnhancedAIPredictor:
+    """강화된 AI 예측 시스템"""
     
-    # 특징과 타겟 분리
-    feature_cols = ['returns_1d', 'returns_5d', 'returns_20d', 'ma5', 'ma20', 
-                    'ma60', 'rsi', 'bb_position', 'volume_ratio', 'cci']
+    def __init__(self):
+        self.models = {}
+        self.success_count = 0
+        self.total_count = 0
+        
+    def prepare_features(self, df):
+        """머신러닝을 위한 특징 준비"""
+        features = pd.DataFrame(index=df.index)
+        
+        # 가격 변화율
+        for period in [1, 3, 5, 10, 20]:
+            features[f'returns_{period}d'] = df['Close'].pct_change(period)
+        
+        # 이동평균
+        for period in [5, 10, 20, 50]:
+            if len(df) >= period:
+                ma = df['Close'].rolling(period).mean()
+                features[f'ma_{period}'] = (df['Close'] - ma) / ma
+        
+        # RSI
+        features['rsi'] = compute_rsi(df['Close'])
+        
+        # MACD
+        if len(df) >= 26:
+            macd, signal, diff = compute_macd(df['Close'])
+            features['macd'] = macd
+            features['macd_signal'] = signal
+            features['macd_diff'] = diff
+        
+        # 볼린저 밴드
+        _, upper, lower, _ = compute_bollinger_bands(df['Close'])
+        features['bb_position'] = (df['Close'] - lower) / (upper - lower + 1e-9)
+        
+        # CCI
+        features['cci'] = compute_cci(df['High'], df['Low'], df['Close'])
+        
+        # 스토캐스틱
+        stoch_k, stoch_d = compute_stoch_mtm(df['Close'], k_length=14)
+        features['stoch_k'] = stoch_k
+        features['stoch_d'] = stoch_d
+        
+        # 거래량
+        features['volume_ratio'] = df['Volume'] / df['Volume'].rolling(20).mean()
+        
+        # ADX
+        adx, plus_di, minus_di = compute_adx(df)
+        features['adx'] = adx
+        features['plus_di'] = plus_di
+        features['minus_di'] = minus_di
+        
+        # MFI
+        features['mfi'] = compute_money_flow(df)
+        
+        # 변동성
+        features['volatility'] = df['Close'].pct_change().rolling(20).std()
+        
+        # 타겟: 5일 후 상승 여부
+        features['target'] = (df['Close'].shift(-5) > df['Close']).astype(int)
+        features['return_5d'] = df['Close'].pct_change(-5)
+        
+        return features.replace([np.inf, -np.inf], np.nan).dropna()
     
-    X = features[feature_cols]
-    y = features['target']
-    
-    # 학습/테스트 분할
-    X_train, X_test, y_train, y_test = train_test_split(
-        X[:-1], y[:-1], test_size=0.2, random_state=42, shuffle=False
-    )
-    
-    # 스케일링
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_test_scaled = scaler.transform(X_test)
-    
-    # 모델 학습
-    model = RandomForestClassifier(n_estimators=100, random_state=42)
-    model.fit(X_train_scaled, y_train)
-    
-    # 정확도
-    accuracy = model.score(X_test_scaled, y_test)
-    
-    # 현재 예측
-    current_features = scaler.transform(X.iloc[-1:])
-    prediction_proba = model.predict_proba(current_features)[0][1]
-    
-    return prediction_proba, accuracy
+    def train_and_predict(self, df):
+        """모델 학습 및 예측"""
+        features = self.prepare_features(df)
+        
+        if len(features) < 100:
+            return None, None, None
+        
+        # 특징 선택
+        feature_cols = [col for col in features.columns if not col.startswith('target') and not col.startswith('return')]
+        
+        X = features[feature_cols]
+        y = features['target']
+        
+        # 시계열 분할
+        split_idx = int(len(X) * 0.8)
+        X_train, X_test = X[:split_idx], X[split_idx:-5]
+        y_train, y_test = y[:split_idx], y[split_idx:-5]
+        
+        if len(X_train) < 50 or len(X_test) < 10:
+            return None, None, None
+        
+        # 스케일링
+        scaler = StandardScaler()
+        X_train_scaled = scaler.fit_transform(X_train)
+        X_test_scaled = scaler.transform(X_test)
+        
+        # 앙상블 모델
+        rf_model = RandomForestClassifier(n_estimators=100, max_depth=10, random_state=42)
+        gb_model = GradientBoostingClassifier(n_estimators=50, max_depth=5, random_state=42)
+        
+        # 학습
+        rf_model.fit(X_train_scaled, y_train)
+        gb_model.fit(X_train_scaled, y_train)
+        
+        # 예측
+        rf_pred = rf_model.predict_proba(X_test_scaled)[:, 1]
+        gb_pred = gb_model.predict_proba(X_test_scaled)[:, 1]
+        
+        # 앙상블
+        ensemble_pred = (rf_pred + gb_pred) / 2
+        accuracy = ((ensemble_pred > 0.5) == y_test).mean()
+        
+        # 현재 예측
+        current_features = scaler.transform(X.iloc[-1:])
+        rf_prob = rf_model.predict_proba(current_features)[0][1]
+        gb_prob = gb_model.predict_proba(current_features)[0][1]
+        final_prediction = (rf_prob + gb_prob) / 2
+        
+        # 예상 수익률
+        expected_return = features['return_5d'].mean() if 'return_5d' in features else None
+        
+        return final_prediction, accuracy, expected_return
 
 # --- 백테스팅 함수 ---
 @st.cache_data
-def backtest_strategy(df, conditions_met_dates):
-    """전략 백테스팅"""
-    results = []
+def perform_backtest(df, prediction_prob, entry_date):
+    """5일 후 백테스팅 수행"""
+    if len(df) < 5:
+        return None
     
-    for date in conditions_met_dates:
-        if date in df.index:
-            entry_price = df.loc[date, 'Close']
-            entry_idx = df.index.get_loc(date)
-            
-            # 5일, 10일, 20일 후 수익률 계산
-            for days in [5, 10, 20]:
-                if entry_idx + days < len(df):
-                    exit_date = df.index[entry_idx + days]
-                    exit_price = df.iloc[entry_idx + days]['Close']
-                    returns = (exit_price - entry_price) / entry_price * 100
-                    
-                    results.append({
-                        'entry_date': date,
-                        'exit_date': exit_date,
-                        'holding_days': days,
-                        'entry_price': entry_price,
-                        'exit_price': exit_price,
-                        'returns': returns
-                    })
+    entry_price = df['Close'].iloc[-1]
     
-    return pd.DataFrame(results)
-
-# --- 관심종목 성과 계산 함수 ---
-def calculate_watchlist_performance():
-    """관심종목의 7일 성과 계산"""
-    today_str = get_most_recent_trading_day()
-    if not today_str:
-        return []
-    
-    updated_watchlist = []
-    
-    for item in st.session_state.watchlist:
+    # 5일 후 실제 결과 확인 (미래 데이터가 있다면)
+    if len(df) >= 5:
         try:
-            # 현재 가격 조회
-            current_date = datetime.strptime(today_str, '%Y%m%d')
-            add_date = datetime.strptime(item['add_date'], '%Y-%m-%d')
-            days_passed = (current_date - add_date).days
+            # 5일 후 가격
+            future_price = df['Close'].iloc[-1]  # 현재 시점
+            actual_return = ((future_price - entry_price) / entry_price) * 100
             
-            # 7일 이상 경과한 종목만 성과 계산
-            if days_passed >= 7 and item.get('status') == 'watching':
-                # 7일간의 데이터 조회 (최저가 확인용)
-                start_date_str = add_date.strftime('%Y%m%d')
-                df = get_ohlcv_df(item['code'], start_date_str, today_str)
-                
-                if not df.empty:
-                    current_price = df['Close'].iloc[-1]
-                    
-                    # 기간 중 최저가 찾기
-                    lowest_price = df['Low'].min()
-                    
-                    # 매수가 대비 수익률
-                    return_rate = ((current_price - item['price']) / item['price']) * 100
-                    
-                    # 최저가 대비 상승률
-                    rise_from_low = ((current_price - lowest_price) / lowest_price) * 100
-                    
-                    item['current_price'] = current_price
-                    item['return_rate'] = return_rate
-                    item['lowest_price'] = lowest_price
-                    item['rise_from_low'] = rise_from_low
-                    item['days_passed'] = days_passed
-                    
-                    # 성공 조건: 매수가 대비 5% 이상 또는 최저가 대비 5% 이상 상승
-                    if return_rate >= 5 or rise_from_low >= 5:
-                        item['status'] = 'success'
-                        item['success_reason'] = '매수가 대비' if return_rate >= 5 else '최저가 대비'
-                    elif days_passed > 7:
-                        item['status'] = 'expired'
+            # 성공 여부 판단
+            predicted_up = prediction_prob >= 0.5
+            actual_up = actual_return > 0
+            success = predicted_up == actual_up
+            
+            return {
+                'entry_date': entry_date,
+                'entry_price': entry_price,
+                'prediction_prob': prediction_prob,
+                'actual_return': actual_return,
+                'success': success
+            }
         except:
-            pass
-        
-        updated_watchlist.append(item)
+            return None
     
-    return updated_watchlist
+    return None
 
-# --- 매수 추천 분석 함수 ---
-def analyze_buy_recommendation(result, stock_name):
-    """종목의 매수 추천 분석"""
-    recommendation = {
-        'buy_score': 0,  # 매수 점수 (0~100)
-        'recommendation': '',  # 추천 내용
-        'reasons': [],  # 매수 이유
-        'risks': [],  # 리스크 요인
-        'strategy': ''  # 매수 전략
-    }
-    
-    # 등급별 기본 점수
-    grade_scores = {
-        'S+': 95, 'S': 90,
-        'A+': 85, 'A': 80,
-        'B+': 70, 'B': 60,
-        'C': 40
-    }
-    
-    base_score = grade_scores.get(result['grade'], 50)
-    recommendation['buy_score'] = base_score
-    
-    # 조건별 분석
-    category_scores = result['category_scores']
-    
-    # 1. CCI 조건 분석 (CCI 돌파 직전 우선 체크)
-    if category_scores['CCI_조건']['count'] > 0:
-        if 'CCI_돌파직전' in str(result['conditions']):
-            recommendation['reasons'].append("🎯 CCI 골든크로스 돌파 직전 - 최적의 매수 타이밍!")
-            recommendation['buy_score'] += 10  # 추가 보너스 점수
-        elif 'CCI_교차' in str(result['conditions']):
-            recommendation['reasons'].append("✅ CCI 골든크로스 발생 - 매수 타이밍 우수")
-            recommendation['buy_score'] += 5
-        elif 'CCI_접근' in str(result['conditions']):
-            recommendation['reasons'].append("📈 CCI가 평균선 접근 중 - 반등 예상")
-            recommendation['buy_score'] += 3
-    
-    # 2. 캔들 패턴 분석
-    if category_scores['캔들_패턴']['count'] > 0:
-        recommendation['reasons'].append("🕯️ 상승 반전 캔들 패턴 출현")
-        recommendation['buy_score'] += 3
-    
-    # 3. 추세 지표 분석
-    if category_scores['추세_지표']['count'] >= 2:
-        recommendation['reasons'].append("📊 다수의 추세 지표가 상승 신호")
-        recommendation['buy_score'] += 5
-    
-    # 4. 거래량 지표 분석
-    if category_scores['거래량_지표']['count'] > 0:
-        if '거래량_증가' in str(result['conditions']):
-            recommendation['reasons'].append("💹 거래량 급증 - 세력 개입 가능성")
-            recommendation['buy_score'] += 3
-    
-    # 매수 추천 결정
-    if recommendation['buy_score'] >= 85:
-        recommendation['recommendation'] = "🔥 적극 매수"
-        recommendation['strategy'] = "즉시 매수 또는 분할 매수 시작"
-    elif recommendation['buy_score'] >= 75:
-        recommendation['recommendation'] = "✅ 매수 추천"
-        recommendation['strategy'] = "소량 매수 후 추가 매수 대기"
-    elif recommendation['buy_score'] >= 65:
-        recommendation['recommendation'] = "👀 관심 종목"
-        recommendation['strategy'] = "추가 신호 확인 후 매수"
-    else:
-        recommendation['recommendation'] = "⏸️ 대기"
-        recommendation['strategy'] = "더 명확한 신호를 기다리세요"
-    
-    # 리스크 요인 체크
-    if result['score'] < 50:
-        recommendation['risks'].append("⚠️ 전체 점수가 낮음 - 신중한 접근 필요")
-    
-    if category_scores['모멘텀_지표']['count'] == 0:
-        recommendation['risks'].append("📉 모멘텀 지표 미충족 - 단기 조정 가능")
-    
-    return recommendation
-
-# --- 스마트 조건 평가 시스템 ---
+# --- 스마트 조건 평가 시스템 (고급자 전용) ---
 class SmartStockFilter:
-    """중급자/고급자용 스마트 필터"""
+    """고급자용 스마트 필터"""
     
-    def __init__(self,
-                 mode: str = "intermediate",
-                 near_cross_thresh: float = 5.0):     # CCI와 MA 사이 거리 임계값 (5포인트 이내)
-        self.mode = mode
+    def __init__(self, near_cross_thresh=5.0):
         self.NC_THRESH = abs(near_cross_thresh)
         
-    def evaluate_stock(self, df, min_volume, min_market_cap):
-        """종목 평가 - 조건 완화 버전"""
+    def evaluate_stock(self, df, min_volume, min_market_cap=None):
+        """종목 평가 - 엄격한 조건"""
         
         if len(df) < 60:
             return None
@@ -694,136 +528,93 @@ class SmartStockFilter:
             '거래량_지표': {'score': 0, 'count': 0, 'conditions': []},
         }
         
-        # 1. CCI 조건 체크 - 돌파 직전 조건을 최우선으로
+        # 1. CCI 조건 체크 - 돌파 직전 최우선
         try:
             cci = compute_cci(df['High'], df['Low'], df['Close'])
             cci_ma = compute_cci_ma(cci)
             if len(cci) >= 2:
                 c_cur, c_prev = cci.iloc[-1], cci.iloc[-2]
                 m_cur, m_prev = cci_ma.iloc[-1], cci_ma.iloc[-2]
-                gap = m_cur - c_cur   # +면 CCI가 MA 아래
+                gap = m_cur - c_cur
 
-                # 1-A. 돌파 직전 (최우선 조건) - CCI가 MA 아래에서 접근 중
-                # 조건: CCI < MA, 간격이 좁아지고 있음, CCI 상승 중
-                if (c_prev < m_prev and c_cur < m_cur and  # 아직 돌파 전
-                    0 < gap <= self.NC_THRESH and          # 간격이 임계값 이내
-                    c_cur > c_prev and                     # CCI 상승 중
-                    (c_cur - c_prev) > (m_cur - m_prev)):  # CCI가 MA보다 빠르게 상승
-                    score += 50  # 최고 점수 부여
-                    conditions['CCI_돌파직전'] = (True, f"CCI({c_cur:.1f}) MA({m_cur:.1f}) 돌파 직전 (gap: {gap:.1f})")
+                # CCI 돌파 직전 (최우선)
+                if (c_prev < m_prev and c_cur < m_cur and
+                    0 < gap <= self.NC_THRESH and
+                    c_cur > c_prev and
+                    (c_cur - c_prev) > (m_cur - m_prev)):
+                    score += 50
+                    conditions['CCI_돌파직전'] = (True, f"CCI({c_cur:.1f}) MA({m_cur:.1f}) 돌파 직전")
                     category_scores['CCI_조건']['score'] += 50
                     category_scores['CCI_조건']['count'] += 1
-                    category_scores['CCI_조건']['conditions'].append('CCI_돌파직전')
                 
-                # 1-B. 이미 골든크로스 완료 (차선책)
+                # CCI 골든크로스 완료
                 elif c_prev < m_prev and c_cur >= m_cur and m_cur < 0:
-                    score += 30  # 점수 하향
-                    conditions['CCI_교차'] = (True, f"CCI({c_prev:.1f}→{c_cur:.1f}) 골든크로스 완료")
+                    score += 30
+                    conditions['CCI_교차'] = (True, f"CCI 골든크로스 완료")
                     category_scores['CCI_조건']['score'] += 30
                     category_scores['CCI_조건']['count'] += 1
-                    category_scores['CCI_조건']['conditions'].append('CCI_교차')
-                
-                # 1-C. MA 접근 중 (gap이 좁아지는 중)
-                elif (c_cur < m_cur and c_cur > c_prev and 
-                      m_cur < 0 and c_cur >= -60 and
-                      gap < abs(m_prev - c_prev)):  # 이전보다 gap이 좁아짐
-                    score += 25
-                    conditions['CCI_접근'] = (True, f"CCI({c_cur:.1f}) MA 접근 중 (gap: {gap:.1f})")
-                    category_scores['CCI_조건']['score'] += 25
-                    category_scores['CCI_조건']['count'] += 1
-                    category_scores['CCI_조건']['conditions'].append('CCI_접근')
-                
-                # 1-D. 상승 전환
-                elif c_prev < -50 and c_cur > c_prev and (c_cur - c_prev) > 5:
-                    score += 20
-                    conditions['CCI_상승전환'] = (True, f"CCI({c_prev:.1f}→{c_cur:.1f}) 상승 전환")
-                    category_scores['CCI_조건']['score'] += 20
-                    category_scores['CCI_조건']['count'] += 1
-                    category_scores['CCI_조건']['conditions'].append('CCI_상승전환')
-                
-                # 1-E. 과매도 구간
-                elif c_cur < -50:
-                    score += 10
-                    conditions['CCI_과매도'] = (True, f"CCI({c_cur:.1f}) 과매도 구간")
-                    category_scores['CCI_조건']['score'] += 10
-                    category_scores['CCI_조건']['count'] += 1
-                    category_scores['CCI_조건']['conditions'].append('CCI_과매도')
-        except Exception:
+        except:
             pass
         
-        # 2. 캔들 패턴 체크
+        # 2. 스토캐스틱 모멘텀 (두 번째 우선순위)
+        try:
+            stoch_k, stoch_d = compute_stoch_mtm(df['Close'], k_length=14)
+            if len(stoch_d) >= 2:
+                if stoch_d.iloc[-1] < -40 and stoch_d.iloc[-1] > stoch_d.iloc[-2]:
+                    score += 30
+                    conditions['Stoch_과매도반등'] = (True, f"Stoch({stoch_d.iloc[-1]:.1f}) 과매도 반등")
+                    category_scores['모멘텀_지표']['score'] += 30
+                    category_scores['모멘텀_지표']['count'] += 1
+        except:
+            pass
+        
+        # 3. 캔들 패턴
         try:
             patterns = detect_candle_patterns(df)
-            pattern_scores = {
-                '망치형': 15,
-                '상승장악형': 15,
-                '적삼병': 20,
-                '모닝스타': 18
-            }
+            pattern_scores = {'망치형': 15, '상승장악형': 15, '적삼병': 20}
             
             for pattern, pattern_score in pattern_scores.items():
                 if patterns.get(pattern, False):
                     score += pattern_score
-                    conditions[f'캔들_{pattern}'] = (True, f"{pattern} 패턴 감지")
+                    conditions[f'캔들_{pattern}'] = (True, f"{pattern} 패턴")
                     category_scores['캔들_패턴']['score'] += pattern_score
                     category_scores['캔들_패턴']['count'] += 1
-                    category_scores['캔들_패턴']['conditions'].append(pattern)
         except:
             pass
         
-        # 3. 거래량 조건 (완화)
+        # 4. 거래량 조건
         try:
-            # 거래량 충족 (원래 조건의 70%만 만족해도 OK)
-            if df['Volume'].iloc[-1] >= min_volume * 0.7:
-                score += 5
+            if df['Volume'].iloc[-1] >= min_volume:
+                score += 10
                 conditions['거래량_충족'] = (True, f"{df['Volume'].iloc[-1]:,}")
-                category_scores['거래량_지표']['score'] += 5
+                category_scores['거래량_지표']['score'] += 10
                 category_scores['거래량_지표']['count'] += 1
             
-            # 거래량 증가 (20일 평균의 2배 이상으로 완화)
             avg_vol_20 = df['Volume'].rolling(20).mean().iloc[-1]
-            if df['Volume'].iloc[-1] >= avg_vol_20 * 2:  # 3배 → 2배
-                score += 15
-                conditions['거래량_증가'] = (True, f"20일 평균의 {df['Volume'].iloc[-1]/avg_vol_20:.1f}배")
-                category_scores['거래량_지표']['score'] += 15
+            if df['Volume'].iloc[-1] >= avg_vol_20 * 2.5:
+                score += 20
+                conditions['거래량_급증'] = (True, f"20일 평균의 {df['Volume'].iloc[-1]/avg_vol_20:.1f}배")
+                category_scores['거래량_지표']['score'] += 20
                 category_scores['거래량_지표']['count'] += 1
         except:
             pass
         
-        # 중급자 모드: CCI + 거래량 중 하나라도 있으면 OK (완화)
-        if self.mode == 'intermediate':
-            if category_scores['CCI_조건']['count'] == 0 and category_scores['거래량_지표']['count'] == 0:
-                return None
+        # 필수 조건: CCI 또는 스토캐스틱 중 하나는 있어야 함
+        if category_scores['CCI_조건']['count'] == 0 and category_scores['모멘텀_지표']['count'] == 0:
+            return None
         
-        # 고급자 모드: CCI 또는 캔들패턴 중 하나
-        elif self.mode == 'advanced':
-            if category_scores['CCI_조건']['count'] == 0 and category_scores['캔들_패턴']['count'] == 0:
-                return None
-        
-        # 4. 추세 지표
+        # 5. 추세 지표
         try:
-            # MA 골든크로스
-            ma5 = df['Close'].rolling(5).mean()
-            ma20 = df['Close'].rolling(20).mean()
-            ma60 = df['Close'].rolling(60).mean()
-            
-            if len(ma5) >= 2 and len(ma20) >= 2:
-                if ma5.iloc[-1] > ma20.iloc[-1] and ma5.iloc[-2] <= ma20.iloc[-2]:
-                    score += 15
-                    conditions['MA_골든크로스'] = (True, f"5일선이 20일선 상향돌파")
-                    category_scores['추세_지표']['score'] += 15
+            # MACD
+            if len(df) >= 26:
+                macd, signal, diff = compute_macd(df['Close'])
+                if diff.iloc[-1] > 0 and diff.iloc[-2] <= 0:
+                    score += 25
+                    conditions['MACD_골든크로스'] = (True, "MACD 골든크로스")
+                    category_scores['추세_지표']['score'] += 25
                     category_scores['추세_지표']['count'] += 1
             
-            # VWAP 돌파
-            vwap = compute_vwap(df)
-            if len(vwap) > 0:
-                if df['Close'].iloc[-1] > vwap.iloc[-1]:
-                    score += 10
-                    conditions['VWAP_돌파'] = (True, f"현재가 > VWAP({vwap.iloc[-1]:.0f})")
-                    category_scores['추세_지표']['score'] += 10
-                    category_scores['추세_지표']['count'] += 1
-            
-            # ADX 추세
+            # ADX
             adx, plus_di, minus_di = compute_adx(df)
             if len(adx) > 0:
                 if adx.iloc[-1] > 25 and plus_di.iloc[-1] > minus_di.iloc[-1]:
@@ -831,86 +622,45 @@ class SmartStockFilter:
                     conditions['ADX_강한추세'] = (True, f"ADX({adx.iloc[-1]:.1f}) 강한 상승추세")
                     category_scores['추세_지표']['score'] += 15
                     category_scores['추세_지표']['count'] += 1
-            
-            # 52주 신고가
-            if len(df) >= 252:
-                high_52w = df['High'].rolling(252).max().iloc[-1]
-                if df['Close'].iloc[-1] >= high_52w * 0.90:  # 0.95 → 0.90으로 완화
-                    score += 20
-                    conditions['52주_신고가'] = (True, f"52주 최고가의 {df['Close'].iloc[-1]/high_52w*100:.1f}%")
-                    category_scores['추세_지표']['score'] += 20
-                    category_scores['추세_지표']['count'] += 1
         except:
             pass
         
-        # 5. 모멘텀 지표 (고급자 모드에서만)
-        if self.mode == 'advanced':
-            try:
-                # RSI
-                rsi = compute_rsi(df['Close'])
-                if len(rsi) >= 2:
-                    # RSI 조건 완화
-                    if 25 < rsi.iloc[-1] < 75 and rsi.iloc[-1] > rsi.iloc[-2]:
-                        score += 10
-                        conditions['RSI_상승'] = (True, f"RSI({rsi.iloc[-1]:.1f}) 상승중")
-                        category_scores['모멘텀_지표']['score'] += 10
-                        category_scores['모멘텀_지표']['count'] += 1
-        
-                # 스토캐스틱 조건 (완화)
-                stoch_k5, stoch_ema5 = compute_stoch_mtm(df['Close'], k_length=5)
-                if len(stoch_ema5) >= 2:
-                    current_stoch_ema5 = stoch_ema5.iloc[-1]
-                    prev_stoch_ema5 = stoch_ema5.iloc[-2]
-                    
-                    # -40 → -30으로 완화
-                    if current_stoch_ema5 < -30 and current_stoch_ema5 > prev_stoch_ema5:
-                        score += 10
-                        conditions['Stoch_과매도반등'] = (True, f"Stoch({current_stoch_ema5:.1f}) 반등")
-                        category_scores['모멘텀_지표']['score'] += 10
-                        category_scores['모멘텀_지표']['count'] += 1
-                
-                # MFI
-                mfi = compute_money_flow(df)
-                if len(mfi) >= 2:
-                    if 20 < mfi.iloc[-1] < 80 and mfi.iloc[-1] > mfi.iloc[-2]:
-                        score += 10
-                        conditions['MFI_자금유입'] = (True, f"MFI({mfi.iloc[-1]:.1f}) 상승")
-                        category_scores['모멘텀_지표']['score'] += 10
-                        category_scores['모멘텀_지표']['count'] += 1
-                
-                # 볼린저 밴드
-                _, upper, lower, _ = compute_bollinger_bands(df['Close'])
-                if len(upper) > 0:
-                    if df['Close'].iloc[-1] > upper.iloc[-1]:
-                        score += 15
-                        conditions['BB_상단돌파'] = (True, "볼린저밴드 상단 돌파")
-                        category_scores['모멘텀_지표']['score'] += 15
-                        category_scores['모멘텀_지표']['count'] += 1
-            except:
-                pass
-        
-        # 6. 기관/외국인 수급 (간단 버전)
+        # 6. 추가 모멘텀 지표
         try:
-            # 최근 5일 수급 데이터
-            recent_date = df.index[-1].strftime('%Y%m%d')
-            code = None  # 이 부분은 호출 시 전달해야 함
-            if code:
-                df_trading = stock.get_market_trading_value_by_date(recent_date, recent_date, code)
-        
-                if not df_trading.empty:
-                    inst_net = df_trading['기관합계'].iloc[-1]
-                    foreign_net = df_trading['외국인합계'].iloc[-1]
+            # RSI
+            rsi = compute_rsi(df['Close'])
+            if len(rsi) >= 2:
+                if 30 < rsi.iloc[-1] < 70 and rsi.iloc[-1] > rsi.iloc[-2]:
+                    score += 10
+                    conditions['RSI_상승'] = (True, f"RSI({rsi.iloc[-1]:.1f}) 상승중")
+                    category_scores['모멘텀_지표']['score'] += 10
+                    category_scores['모멘텀_지표']['count'] += 1
             
-                    if inst_net > 0 and foreign_net > 0:
-                        score += 20
-                        conditions['수급_동시매수'] = (True, "기관/외인 동시 순매수")
-                        category_scores['거래량_지표']['score'] += 20
-                        category_scores['거래량_지표']['count'] += 1
+            # MFI
+            mfi = compute_money_flow(df)
+            if len(mfi) >= 2:
+                if 20 < mfi.iloc[-1] < 80 and mfi.iloc[-1] > mfi.iloc[-2]:
+                    score += 10
+                    conditions['MFI_자금유입'] = (True, f"MFI({mfi.iloc[-1]:.1f}) 상승")
+                    category_scores['모멘텀_지표']['score'] += 10
+                    category_scores['모멘텀_지표']['count'] += 1
         except:
-            pass  # 오류 무시
-            
+            pass
+        
         # 등급 계산
-        grade = self.calculate_grade(score, category_scores)
+        if score >= 120:
+            grade = 'S'
+        elif score >= 90:
+            grade = 'A'
+        elif score >= 60:
+            grade = 'B'
+        else:
+            grade = 'C'
+        
+        # 추가 조건 충족 시 + 부여
+        high_categories = sum(1 for cat in category_scores.values() if cat['score'] >= 20)
+        if high_categories >= 3:
+            grade += '+'
         
         return {
             'score': score,
@@ -918,622 +668,338 @@ class SmartStockFilter:
             'conditions': conditions,
             'category_scores': category_scores
         }
-    
-    def calculate_grade(self, score, category_scores):
-        """점수와 카테고리별 충족도를 고려한 등급"""
-        if self.mode == 'intermediate':
-            # 중급자: 점수 기준 완화
-            if score >= 80:  # 100 → 80
-                base_grade = 'A'
-            elif score >= 50:  # 70 → 50
-                base_grade = 'B'
-            else:
-                base_grade = 'C'
-            
-            # 캔들패턴 + 추세지표 중 하나라도 있으면 + (완화)
-            if category_scores['캔들_패턴']['count'] > 0 or category_scores['추세_지표']['count'] >= 1:
-                base_grade += '+'
-        
-        else:  # advanced
-            # 고급자: 점수 기준 완화
-            if score >= 120:  # 150 → 120
-                base_grade = 'S'
-            elif score >= 80:  # 120 → 80
-                base_grade = 'A'
-            else:
-                base_grade = 'B'
-            
-            # 2개 이상 카테고리에서 점수가 있으면 + (완화)
-            high_categories = sum(1 for cat in category_scores.values() if cat['score'] >= 10)
-            if high_categories >= 2:
-                base_grade += '+'
-        
-        return base_grade
 
 # --- 메인 UI ---
 st.markdown("""
-### 📊 스마트 필터 시스템 v3.0
-- **종목 검색 조**: CCI 또는 캔들패턴 필수, 모든 지표 활용
-- **NEW**: 🤖 AI 예측, 📈 백테스팅
-- **🎯 CCI 돌파 직전 우선 검색**: CCI가 MA선을 돌파하기 직전인 종목을 최우선으로 찾아줍니다
+### 📊 스마트 필터 시스템 v4.0
+- **🎯 CCI 돌파 직전 최우선**: CCI가 MA선을 돌파하기 직전 종목
+- **📈 스토캐스틱 모멘텀**: 과매도 구간 반등 신호
+- **🇰🇷 한국 주식**: KOSPI/KOSDAQ 실시간 분석
+- **🇺🇸 미국 주식**: S&P 500 주요 종목 분석
+- **🤖 AI 예측**: 5일 후 상승/하락 예측 (앙상블 모델)
+- **✅ 백테스팅 신뢰도**: 시스템 성공률 실시간 표시
 """)
+
+# 백테스팅 통계 표시
+col1, col2, col3, col4 = st.columns(4)
+with col1:
+    st.metric("전체 예측", st.session_state.backtest_stats['total'])
+with col2:
+    st.metric("성공", st.session_state.backtest_stats['success'])
+with col3:
+    st.metric("실패", st.session_state.backtest_stats['fail'])
+with col4:
+    success_rate = st.session_state.backtest_stats['success_rate']
+    st.metric("시스템 신뢰도", f"{success_rate:.1f}%",
+              delta=f"{'✅' if success_rate >= 60 else '⚠️'}")
 
 # 사이드바
 with st.sidebar:
     st.header("⚙️ 설정")
-    st.write("테스트 버전입니다.")
     
-    # 모드 선택
-    filter_mode = 'advanced'
+    # 시장 선택
+    market = st.radio(
+        "🌍 시장 선택",
+        ["🇰🇷 한국 주식", "🇺🇸 미국 주식 (S&P 500)"],
+        help="분석할 시장을 선택하세요"
+    )
     
     st.markdown("---")
     
-    # 조건 설정
+    # 공통 설정
     min_volume = st.number_input(
-        "📊 최소 거래량", 
-        value=300000 if filter_mode == 'intermediate' else 200000,
-        step=50000
+        "📊 최소 거래량",
+        value=500000 if "한국" in market else 1000000,
+        step=100000
     )
-    
-    min_market_cap = st.number_input(
-        "💰 최소 시가총액 (억원)", 
-        value=300 if filter_mode == 'intermediate' else 200,
-        step=100
-    ) * 100_000_000
     
     # 검색 종목 수
     search_limit = st.slider(
         "🔍 검색 종목 수",
-        50, 500, 
-        value=150,
-        step=50,
-        help="많을수록 정확하지만 느려집니다"
+        10, 100,
+        value=30 if "한국" in market else 20,
+        help="적을수록 빠르고 정확합니다"
     )
     
     # 목표 등급
-    if filter_mode == 'intermediate':
-        target_grade = st.select_slider(
-            "🎖️ 목표 등급",
-            options=['B', 'B+', 'A', 'A+', 'S', 'S+'],
-            value='A'
-        )
+    target_grade = st.select_slider(
+        "🎖️ 목표 등급",
+        options=['B', 'B+', 'A', 'A+', 'S', 'S+'],
+        value='A'
+    )
     
-    # 빠른 검색 옵션
+    # 조건 엄격도 (고정값: 엄격함)
     st.markdown("---")
-    quick_search = st.checkbox("⚡ 빠른 검색 모드", value=True, help="KOSPI 상위 종목만 검색")
-        
-    # CCI 돌파 직전 감지 임계값
+    st.info("📏 조건 엄격도: **엄격함** (고정)")
+    min_score = 80  # 엄격한 조건
+    
+    # CCI 설정
     st.markdown("---")
     st.subheader("🎯 CCI 설정")
     cci_threshold = st.slider(
         "CCI 돌파 직전 감지 범위",
-        1.0, 10.0, 
+        1.0, 10.0,
         value=5.0,
         step=0.5,
-        help="CCI와 MA 사이 거리 (작을수록 엄격하게 돌파 직전만 감지)"
+        help="작을수록 더 엄격하게 돌파 직전만 감지"
     )
-        
-    # AI 기능 활성화
+    
+    # AI 설정
     st.markdown("---")
-    st.subheader("🤖 AI 기능")
+    st.subheader("🤖 AI 설정")
     enable_ai = st.checkbox("AI 예측 활성화", value=True)
     enable_backtest = st.checkbox("백테스팅 활성화", value=True)
-    
-# 검색 버튼
+
+# AI 예측기 초기화
+ai_predictor = EnhancedAIPredictor()
+
+# 검색 실행
 if st.button("🔍 스마트 검색 실행", type="primary"):
-    st.session_state.show_results = True
     with st.spinner("종목 분석 중..."):
-        # 데이터 로딩
-        today_str = get_most_recent_trading_day()
-        if not today_str:
-            st.error("개장일 정보를 가져올 수 없습니다.")
-            st.stop()
-        
-        st.info(f"📅 기준일: {today_str[:4]}-{today_str[4:6]}-{today_str[6:]}")
-        
-        # 종목 리스트 가져오기
-        if quick_search:
-            # 빠른 검색: 거래대금 상위 종목만
-            with st.spinner("거래대금 상위 종목을 가져오는 중..."):
-                top_volume_codes = get_top_volume_stocks(today_str, search_limit)
-                
-                if not top_volume_codes:
-                    st.warning("거래대금 상위 종목을 가져올 수 없습니다. 전체 검색으로 전환합니다.")
-                    name_code_map, code_name_map = get_name_code_map()
-                    top_volume_codes = list(code_name_map.keys())[:search_limit]
-                else:
-                    _, code_name_map = get_name_code_map()
-        else:
-            # 전체 검색
-            name_code_map, code_name_map = get_name_code_map()
-            if not name_code_map:
-                st.error("종목 정보를 가져올 수 없습니다.")
-                st.stop()
-            
-            top_volume_codes = list(code_name_map.keys())[:search_limit]
-        
-        # 스마트 필터 실행 (CCI 임계값 전달)
-        smart_filter = SmartStockFilter(mode=filter_mode, near_cross_thresh=cci_threshold)
         results = []
+        smart_filter = SmartStockFilter(near_cross_thresh=cci_threshold)
         
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        # 배치 처리
-        batch_size = 10
-        total_codes = len(top_volume_codes)
-        
-        # 조건 엄격도에 따른 최소 점수 조정
-        min_score = 80  # advanced + 엄격 고정
-        
-        for batch_idx in range(0, total_codes, batch_size):
-            batch_codes = top_volume_codes[batch_idx:batch_idx + batch_size]
+        if "한국" in market and PYKRX_AVAILABLE:
+            # 한국 주식 분석
+            today_str = get_most_recent_trading_day()
+            st.info(f"📅 기준일: {today_str[:4]}-{today_str[4:6]}-{today_str[6:]}")
             
-            for idx, code in enumerate(batch_codes):
-                current_idx = batch_idx + idx
-                progress_bar.progress(
-                    current_idx / total_codes
-                )
-                status_text.text(f"분석 중... {current_idx}/{total_codes} - {code_name_map.get(code, code)}")
-                
+            # 거래대금 상위 종목
+            top_codes = get_top_volume_korean_stocks(today_str, search_limit * 2)
+            
+            # 종목명 매핑
+            code_name_map = {}
+            for code in top_codes:
                 try:
-                    # 90일 데이터만 가져오기 (속도 개선)
-                    start_date = (datetime.strptime(today_str, '%Y%m%d') - timedelta(days=90)).strftime('%Y%m%d')
-                    df = get_ohlcv_df(code, start_date, today_str)
-                    
-                    if df.empty or len(df) < 60:
-                        continue
-                    
-                    # 빠른 필터링: 거래량이 너무 적으면 스킵
-                    if df['Volume'].iloc[-1] < min_volume * 0.3:
-                        continue
-                    
-                    result = smart_filter.evaluate_stock(df, min_volume, min_market_cap)
+                    name = stock.get_market_ticker_name(code)
+                    code_name_map[code] = name
+                except:
+                    continue
+            
+            progress_bar = st.progress(0)
+            
+            for idx, code in enumerate(top_codes[:search_limit]):
+                progress_bar.progress((idx + 1) / min(search_limit, len(top_codes)))
+                
+                # 90일 데이터
+                start_date = (datetime.strptime(today_str, '%Y%m%d') - timedelta(days=90)).strftime('%Y%m%d')
+                df = get_korean_stock_data(code, start_date, today_str)
+                
+                if df is not None and len(df) >= 60:
+                    result = smart_filter.evaluate_stock(df, min_volume)
                     
                     if result and result['score'] >= min_score:
-                        # 목표 등급 확인
-                        if result['grade'].replace('+', '') in ['A', 'S']:
-                            
-                            # 현재가 정보 추가
-                            current_price = df['Close'].iloc[-1]
-                            prev_close = df['Close'].iloc[-2]
-                            change_pct = (current_price - prev_close) / prev_close * 100
-                            
-                            # 섹터 정보 추가
-                            stock_sector = get_stock_sector(code_name_map.get(code, f"Unknown({code})"))
-                                                       
-                            # AI 예측 추가
-                            ai_prediction = None
-                            ai_accuracy = None
+                        # 등급 확인
+                        result_grade = result['grade'].replace('+', '')
+                        target_grade_clean = target_grade.replace('+', '')
+                        grade_order = ['C', 'B', 'A', 'S']
+                        
+                        if grade_order.index(result_grade) >= grade_order.index(target_grade_clean):
+                            # AI 예측
+                            ai_pred = None
+                            ai_acc = None
                             if enable_ai:
-                                try:
-                                    # 더 긴 기간 데이터로 AI 학습
-                                    long_start = (datetime.strptime(today_str, '%Y%m%d') - timedelta(days=365)).strftime('%Y%m%d')
-                                    long_df = get_ohlcv_df(code, long_start, today_str)
-                                    if len(long_df) >= 100:
-                                        ai_prediction, ai_accuracy = train_ai_model(long_df)
-                                except:
-                                    pass
+                                ai_pred, ai_acc, _ = ai_predictor.train_and_predict(df)
                             
                             results.append({
-                                'code': code,
-                                'name': code_name_map.get(code, f"Unknown({code})"),
-                                'sector': stock_sector,
+                                'ticker': code,
+                                'name': code_name_map.get(code, code),
+                                'market': 'KR',
                                 'grade': result['grade'],
                                 'score': result['score'],
-                                'price': current_price,
-                                'change': change_pct,
+                                'price': df['Close'].iloc[-1],
+                                'change': ((df['Close'].iloc[-1] - df['Close'].iloc[-2]) / df['Close'].iloc[-2]) * 100,
                                 'volume': df['Volume'].iloc[-1],
                                 'conditions': result['conditions'],
                                 'category_scores': result['category_scores'],
-                                'ai_prediction': ai_prediction,
-                                'ai_accuracy': ai_accuracy,
+                                'ai_prediction': ai_pred,
+                                'ai_accuracy': ai_acc,
                                 'df': df
                             })
-                            
-                            # 목표 개수 도달 시 조기 종료
-                            if filter_mode == 'intermediate' and len(results) >= 20:
-                                break
-                            elif filter_mode == 'advanced' and len(results) >= 30:
-                                break
-                
-                except Exception as e:
-                    continue
             
-            # 충분한 결과가 나왔으면 중단
-            if (filter_mode == 'intermediate' and len(results) >= 20) or \
-               (filter_mode == 'advanced' and len(results) >= 30):
-                break
+            progress_bar.empty()
+            
+        elif "미국" in market and YFINANCE_AVAILABLE:
+            # 미국 주식 분석
+            st.info("📅 S&P 500 주요 종목 분석")
+            
+            progress_bar = st.progress(0)
+            
+            for idx, ticker in enumerate(SP500_TICKERS[:search_limit]):
+                progress_bar.progress((idx + 1) / min(search_limit, len(SP500_TICKERS)))
+                
+                df, info = get_us_stock_data(ticker, period="3mo")
+                
+                if df is not None and len(df) >= 60:
+                    result = smart_filter.evaluate_stock(df, min_volume)
+                    
+                    if result and result['score'] >= min_score:
+                        # 등급 확인
+                        result_grade = result['grade'].replace('+', '')
+                        target_grade_clean = target_grade.replace('+', '')
+                        grade_order = ['C', 'B', 'A', 'S']
+                        
+                        if grade_order.index(result_grade) >= grade_order.index(target_grade_clean):
+                            # AI 예측
+                            ai_pred = None
+                            ai_acc = None
+                            if enable_ai:
+                                ai_pred, ai_acc, _ = ai_predictor.train_and_predict(df)
+                            
+                            results.append({
+                                'ticker': ticker,
+                                'name': info.get('longName', ticker),
+                                'market': 'US',
+                                'grade': result['grade'],
+                                'score': result['score'],
+                                'price': df['Close'].iloc[-1],
+                                'change': ((df['Close'].iloc[-1] - df['Close'].iloc[-2]) / df['Close'].iloc[-2]) * 100,
+                                'volume': df['Volume'].iloc[-1],
+                                'conditions': result['conditions'],
+                                'category_scores': result['category_scores'],
+                                'ai_prediction': ai_pred,
+                                'ai_accuracy': ai_acc,
+                                'df': df
+                            })
+            
+            progress_bar.empty()
         
-        progress_bar.empty()
-        status_text.empty()
-        
-        # 결과를 세션 상태에 저장
         st.session_state.search_results = results
 
-# 검색 결과 표시 (세션 상태에서 가져오기)
-if st.session_state.show_results and st.session_state.search_results is not None:
+# 검색 결과 표시
+if st.session_state.search_results:
     results = st.session_state.search_results
     
     if results:
         st.success(f"✅ {len(results)}개 종목이 조건을 충족했습니다!")
         
-        # 등급별 정렬
-        results.sort(key=lambda x: (x['grade'], x['score']), reverse=True)
+        # 점수순 정렬
+        results.sort(key=lambda x: x['score'], reverse=True)
         
-        # 등급별 그룹화
-        grade_groups = {}
+        # 결과 표시
         for result in results:
-            grade = result['grade']
-            if grade not in grade_groups:
-                grade_groups[grade] = []
-            grade_groups[grade].append(result)
-        
-        # 등급별 표시
-        for grade in sorted(grade_groups.keys(), reverse=True):
-            stocks = grade_groups[grade]
-            
-            # 같은 등급 내에서 점수 순으로 정렬
-            stocks.sort(key=lambda x: x['score'], reverse=True)
-            
-            st.subheader(f"🏆 {grade}등급 ({len(stocks)}개)")
-            
-            # 요약 테이블
-            summary_data = []
-            for stock in stocks[:10]:
-                # 주요 충족 조건 요약
-                main_conditions = []
-                for cond_name, (satisfied, _) in stock['conditions'].items():
-                    if satisfied and any(key in cond_name for key in ['CCI', '캔들', 'MA', '52주']):
-                        main_conditions.append(cond_name.split('_')[0])
+            with st.expander(f"📊 {result['name']} ({result['ticker']}) - {result['grade']}등급"):
+                # 기본 정보
+                col1, col2, col3, col4 = st.columns(4)
                 
-                # 매수 추천 분석
-                buy_rec = analyze_buy_recommendation(stock, stock['name'])
+                with col1:
+                    if result['market'] == 'KR':
+                        st.metric("현재가", f"₩{result['price']:,.0f}")
+                    else:
+                        st.metric("현재가", f"${result['price']:.2f}")
                 
-                # CCI 돌파 직전인 경우 특별 표시
-                if 'CCI_돌파직전' in str(stock['conditions']):
-                    recommendation = f"🔥 {buy_rec['recommendation']}"
-                else:
-                    recommendation = buy_rec['recommendation']
+                with col2:
+                    st.metric("전일비", f"{result['change']:.2f}%")
                 
-                # AI 예측 포맷팅
-                ai_pred_str = "-"
-                if stock.get('ai_prediction') is not None:
-                    ai_pred_str = f"{stock['ai_prediction']*100:.1f}%"
-                    if stock.get('ai_accuracy'):
-                        ai_pred_str += f" (정확도: {stock['ai_accuracy']*100:.1f}%)"
+                with col3:
+                    st.metric("점수", result['score'])
                 
-                summary_data.append({
-                    '종목명': stock['name'],
-                    '섹터': stock['sector'],
-                    '코드': stock['code'],
-                    '현재가': f"{stock['price']:,.0f}",
-                    '전일비': f"{stock['change']:+.2f}%",
-                    '거래량': f"{stock['volume']:,}",
-                    '점수': stock['score'],
-                    '매수추천': recommendation,
-                    'AI예측': ai_pred_str,
-                    '주요신호': ', '.join(main_conditions[:3])
-                })
-            
-            df_summary = pd.DataFrame(summary_data)
-            
-            # 관심종목 추가 버튼을 각 행에 추가
-            for idx, row in df_summary.iterrows():
-                with st.form(key=f"form_{row['코드']}_{grade}_{idx}"):
-                    col1, col2, col3, col4, col5, col6, col7, col8, col9, col10, col11 = st.columns([2, 1.5, 1, 1.5, 1, 1.5, 1, 1.5, 2, 2, 1])
-                    
-                    with col1:
-                        st.write(row['종목명'])
-                    with col2:
-                        st.write(row['섹터'])
-                    with col3:
-                        st.write(row['코드'])
-                    with col4:
-                        st.write(row['현재가'])
-                    with col5:
-                        st.write(row['전일비'])
-                    with col6:
-                        st.write(row['거래량'])
-                    with col7:
-                        st.write(row['점수'])
-                    with col8:
-                        st.write(row['매수추천'])
-                    with col9:
-                        st.write(row['AI예측'])
-                    with col10:
-                        st.write(row['주요신호'])
-                    with col11:
-                        # 이미 관심종목에 있는지 확인
-                        is_in_watchlist = any(item['code'] == row['코드'] for item in st.session_state.watchlist)
-                        
-                        if not is_in_watchlist:
-                            if st.form_submit_button("➕", help="관심종목 추가"):
-                                # 관심종목에 추가
-                                new_stock = {
-                                    'code': row['코드'],
-                                    'name': row['종목명'],
-                                    'sector': row['섹터'],
-                                    'price': float(row['현재가'].replace(',', '')),
-                                    'add_date': datetime.now().strftime('%Y-%m-%d'),
-                                    'grade': grade,
-                                    'score': stocks[idx]['score'],
-                                    'status': 'watching'
-                                }
-                                st.session_state.watchlist.append(new_stock)
-                                save_watchlist(st.session_state.watchlist)
-                                st.success(f"✅ {row['종목명']} 관심종목에 추가됨!")
+                with col4:
+                    if result.get('ai_prediction'):
+                        pred_pct = result['ai_prediction'] * 100
+                        st.metric("AI 예측", f"{pred_pct:.1f}%",
+                                 delta="상승" if pred_pct > 50 else "하락")
+                
+                # 조건 상세
+                st.write("**충족 조건:**")
+                for cond_name, (satisfied, detail) in result['conditions'].items():
+                    if satisfied:
+                        if 'CCI_돌파직전' in cond_name:
+                            st.write(f"- 🔥 **{cond_name}**: {detail}")
+                        elif 'Stoch' in cond_name:
+                            st.write(f"- 📈 **{cond_name}**: {detail}")
                         else:
-                            st.write("✅")
-                        
-            # 상세 정보 (확장 가능)
-            with st.expander("📋 상세 분석 보기"):
-                for stock in stocks:
-                    st.markdown(f"### {stock['name']} ({stock['code']}) - {stock['sector']}")
+                            st.write(f"- {cond_name}: {detail}")
+                
+                # AI 예측 상세
+                if result.get('ai_prediction') and result.get('ai_accuracy'):
+                    st.write(f"**AI 분석:** 정확도 {result['ai_accuracy']*100:.1f}%")
                     
-                    # 탭으로 구성
-                    tab1, tab2, tab3 = st.tabs(["📊 기술적 분석", "🤖 AI 예측", "📈 백테스팅"])
-                    
-                    with tab1:
-                        # 매수 추천 분석 상세
-                        buy_rec = analyze_buy_recommendation(stock, stock['name'])
+                    # 백테스팅 수행
+                    if enable_backtest:
+                        backtest = perform_backtest(
+                            result['df'],
+                            result['ai_prediction'],
+                            datetime.now().strftime('%Y-%m-%d')
+                        )
                         
-                        # 매수 추천 박스
-                        if buy_rec['buy_score'] >= 85:
-                            st.success(f"### {buy_rec['recommendation']} (점수: {buy_rec['buy_score']}점)")
-                        elif buy_rec['buy_score'] >= 75:
-                            st.info(f"### {buy_rec['recommendation']} (점수: {buy_rec['buy_score']}점)")
-                        elif buy_rec['buy_score'] >= 65:
-                            st.warning(f"### {buy_rec['recommendation']} (점수: {buy_rec['buy_score']}점)")
-                        else:
-                            st.error(f"### {buy_rec['recommendation']} (점수: {buy_rec['buy_score']}점)")
-                        
-                        # 매수 전략
-                        st.write(f"**📊 매수 전략**: {buy_rec['strategy']}")
-                        
-                        # 카테고리별 점수
-                        col1, col2, col3, col4, col5 = st.columns(5)
-                        
-                        with col1:
-                            cat = stock['category_scores']['CCI_조건']
-                            st.metric("CCI", f"{cat['count']}개", f"{cat['score']}점")
-                        
-                        with col2:
-                            cat = stock['category_scores']['캔들_패턴']
-                            st.metric("캔들", f"{cat['count']}개", f"{cat['score']}점")
-                        
-                        with col3:
-                            cat = stock['category_scores']['추세_지표']
-                            st.metric("추세", f"{cat['count']}개", f"{cat['score']}점")
-                        
-                        with col4:
-                            cat = stock['category_scores']['모멘텀_지표']
-                            st.metric("모멘텀", f"{cat['count']}개", f"{cat['score']}점")
-                        
-                        with col5:
-                            cat = stock['category_scores']['거래량_지표']
-                            st.metric("거래량", f"{cat['count']}개", f"{cat['score']}점")
-                        
-                        # 매수 이유
-                        if buy_rec['reasons']:
-                            st.write("**✅ 매수 이유:**")
-                            for reason in buy_rec['reasons']:
-                                st.write(f"  {reason}")
-                        
-                        # 리스크 요인
-                        if buy_rec['risks']:
-                            st.write("**⚠️ 리스크 요인:**")
-                            for risk in buy_rec['risks']:
-                                st.write(f"  {risk}")
-                        
-                        # 충족 조건 상세
-                        st.write("\n**📊 충족 조건 상세:**")
-                        for cond_name, (satisfied, detail) in stock['conditions'].items():
-                            if satisfied:
-                                st.write(f"- {cond_name}: {detail}")
-                    
-                    with tab2:
-                        if enable_ai and stock.get('ai_prediction') is not None:
-                            st.subheader("🤖 AI 예측 분석")
-                            
-                            # AI 예측 결과
-                            pred_prob = stock['ai_prediction']
-                            accuracy = stock.get('ai_accuracy', 0)
-                            
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                st.metric("5일 후 상승 확률", f"{pred_prob*100:.1f}%")
-                            with col2:
-                                st.metric("모델 정확도", f"{accuracy*100:.1f}%")
-                            
-                            # 예측 해석
-                            if pred_prob >= 0.7:
-                                st.success("🚀 AI가 강한 상승을 예측합니다!")
-                            elif pred_prob >= 0.6:
-                                st.info("📈 AI가 상승 가능성이 높다고 판단합니다.")
-                            elif pred_prob >= 0.5:
-                                st.warning("📊 AI가 약간의 상승 가능성을 봅니다.")
+                        if backtest:
+                            # 통계 업데이트
+                            st.session_state.backtest_stats['total'] += 1
+                            if backtest['success']:
+                                st.session_state.backtest_stats['success'] += 1
                             else:
-                                st.error("📉 AI가 하락 가능성이 높다고 판단합니다.")
+                                st.session_state.backtest_stats['fail'] += 1
                             
-                            st.caption("* AI 예측은 참고용입니다. 과거 데이터 기반으로 학습했습니다.")
-                        else:
-                            st.info("AI 예측을 위한 충분한 데이터가 없습니다.")
-                    
-                    with tab3:
-                        if enable_backtest and 'df' in stock:
-                            st.subheader("📈 백테스팅 결과")
-                            
-                            # 과거에 동일한 조건을 만족했던 날짜 찾기
-                            df = stock['df']
-                            backtest_dates = []
-                            
-                            # 간단한 백테스팅: CCI 골든크로스 날짜 찾기
-                            try:
-                                cci = compute_cci(df['High'], df['Low'], df['Close'])
-                                cci_ma = compute_cci_ma(cci)
-                                
-                                for i in range(1, len(cci)-20):
-                                    if cci.iloc[i-1] < cci_ma.iloc[i-1] and cci.iloc[i] >= cci_ma.iloc[i]:
-                                        backtest_dates.append(df.index[i])
-                                
-                                if backtest_dates:
-                                    # 백테스트 실행
-                                    backtest_results = backtest_strategy(df, backtest_dates[-10:])
-                                    
-                                    if not backtest_results.empty:
-                                        # 수익률 통계
-                                        for days in [5, 10, 20]:
-                                            day_results = backtest_results[backtest_results['holding_days'] == days]
-                                            if not day_results.empty:
-                                                avg_return = day_results['returns'].mean()
-                                                win_rate = (day_results['returns'] > 0).mean() * 100
-                                                
-                                                col1, col2 = st.columns(2)
-                                                with col1:
-                                                    st.metric(f"{days}일 평균 수익률", f"{avg_return:.2f}%")
-                                                with col2:
-                                                    st.metric(f"{days}일 승률", f"{win_rate:.1f}%")
-                                        
-                                        st.caption(f"* 최근 {len(backtest_dates)}번의 신호 중 마지막 10개 분석")
-                                    else:
-                                        st.info("백테스팅 결과가 없습니다.")
-                                else:
-                                    st.info("과거에 유사한 신호가 발견되지 않았습니다.")
-                            except:
-                                st.error("백테스팅 중 오류가 발생했습니다.")
-                        else:
-                            st.info("백테스팅이 비활성화되어 있습니다.")
-                                            
+                            if st.session_state.backtest_stats['total'] > 0:
+                                st.session_state.backtest_stats['success_rate'] = (
+                                    st.session_state.backtest_stats['success'] / 
+                                    st.session_state.backtest_stats['total'] * 100
+                                )
+                
+                # 관심종목 추가
+                if st.button(f"➕ 관심종목 추가", key=f"add_{result['ticker']}"):
+                    new_item = {
+                        'ticker': result['ticker'],
+                        'name': result['name'],
+                        'market': result['market'],
+                        'price': result['price'],
+                        'add_date': datetime.now().strftime('%Y-%m-%d'),
+                        'grade': result['grade'],
+                        'ai_prediction': result.get('ai_prediction')
+                    }
+                    st.session_state.watchlist.append(new_item)
+                    save_watchlist(st.session_state.watchlist)
+                    st.success(f"✅ {result['name']} 추가됨!")
     else:
         st.warning("조건을 충족하는 종목이 없습니다.")
         st.info("""
         💡 **해결 방법:**
-        1. 최소 거래량/시가총액 낮추기
-        2. 검색 종목 수 늘리기 (200~300개)
-        3. 목표 등급 낮추기 (B 또는 A)
-        4. CCI 돌파 직전 감지 범위(슬라이더) 완화하기
+        1. 검색 종목 수 늘리기
+        2. 목표 등급 낮추기
+        3. CCI 돌파 직전 감지 범위 늘리기
+        4. 최소 거래량 낮추기
         """)
 
-# 관심종목 추적 섹션
+# 관심종목 섹션
 st.markdown("---")
-st.header("📌 관심종목 추적")
+st.header("📌 관심종목")
 
-# 관심종목 성과 업데이트
 if st.session_state.watchlist:
-    st.session_state.watchlist = calculate_watchlist_performance()
-    save_watchlist(st.session_state.watchlist)
-
-# 관심종목 표시
-if st.session_state.watchlist:
-    # 탭 생성
-    tab1, tab2, tab3 = st.tabs(["🎯 관찰 중", "✅ 성공", "📊 전체 현황"])
-    
-    with tab1:
-        watching_stocks = [s for s in st.session_state.watchlist if s['status'] == 'watching']
-        if watching_stocks:
-            st.write(f"**관찰 중인 종목: {len(watching_stocks)}개**")
-            
-            for stock in watching_stocks:
-                col1, col2, col3, col4, col5, col6, col7 = st.columns([2, 1.5, 1, 1, 1, 1, 1])
-                
-                with col1:
-                    st.write(f"**{stock['name']}** ({stock['code']})")
-                with col2:
-                    st.write(f"섹터: {stock.get('sector', '기타')}")
-                with col3:
-                    st.write(f"등급: {stock['grade']}")
-                with col4:
-                    st.write(f"매수가: {stock['price']:,.0f}")
-                with col5:
-                    add_date = datetime.strptime(stock['add_date'], '%Y-%m-%d')
-                    days_passed = (datetime.now() - add_date).days
-                    st.write(f"D+{days_passed}")
-                with col6:
-                    if 'current_price' in stock:
-                        return_rate = stock.get('return_rate', 0)
-                        rise_from_low = stock.get('rise_from_low', 0)
-                        
-                        # 더 높은 수익률 표시
-                        display_rate = max(return_rate, rise_from_low)
-                        color = "green" if display_rate > 0 else "red"
-                        
-                        # 어떤 기준인지 표시
-                        if rise_from_low > return_rate and rise_from_low >= 5:
-                            st.markdown(f"<span style='color:{color}'>{rise_from_low:+.2f}% (최저가↑)</span>", unsafe_allow_html=True)
-                        else:
-                            st.markdown(f"<span style='color:{color}'>{return_rate:+.2f}%</span>", unsafe_allow_html=True)
-                    else:
-                        st.write("-")
-                with col7:
-                    if st.button("🗑️", key=f"del_{stock['code']}", help="삭제"):
-                        st.session_state.watchlist = [s for s in st.session_state.watchlist if s['code'] != stock['code']]
-                        save_watchlist(st.session_state.watchlist)
-                        st.rerun()
-        else:
-            st.info("관찰 중인 종목이 없습니다.")
-    
-    with tab2:
-        success_stocks = [s for s in st.session_state.watchlist if s['status'] == 'success']
-        if success_stocks:
-            st.write(f"**성공한 종목: {len(success_stocks)}개**")
-            
-            for stock in success_stocks:
-                col1, col2, col3, col4, col5 = st.columns([2, 1.5, 1, 1, 1])
-                
-                with col1:
-                    st.write(f"**{stock['name']}** ({stock['code']})")
-                with col2:
-                    st.write(f"섹터: {stock.get('sector', '기타')}")
-                with col3:
-                    st.write(f"매수가: {stock['price']:,.0f}")
-                with col4:
-                    if stock.get('success_reason') == '매수가 대비':
-                        return_rate = stock.get('return_rate', 0)
-                        st.write(f"수익률: {return_rate:+.2f}%")
-                    else:
-                        rise_from_low = stock.get('rise_from_low', 0)
-                        st.write(f"최저가 대비: {rise_from_low:+.2f}%")
-                with col5:
-                    st.write(f"✅ {stock.get('success_reason', '성공')}")
-        else:
-            st.info("아직 성공한 종목이 없습니다.")
-    
-    with tab3:
-        # 전체 통계
-        total_stocks = len(st.session_state.watchlist)
-        watching = len([s for s in st.session_state.watchlist if s['status'] == 'watching'])
-        success = len([s for s in st.session_state.watchlist if s['status'] == 'success'])
+    for item in st.session_state.watchlist:
+        col1, col2, col3, col4, col5 = st.columns([3, 1, 1, 1, 1])
         
-        col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("전체 종목", total_stocks)
-        with col2:
-            st.metric("관찰 중", watching)
-        with col3:
-            st.metric("성공", success)
+            flag = "🇰🇷" if item['market'] == 'KR' else "🇺🇸"
+            st.write(f"{flag} **{item['name']}** ({item['ticker']})")
         
-        # 섹터별 분포
-        if st.session_state.watchlist:
-            st.subheader("📊 관심종목 섹터별 분포")
-            sector_dist = {}
-            for stock in st.session_state.watchlist:
-                sector = stock.get('sector', '기타')
-                sector_dist[sector] = sector_dist.get(sector, 0) + 1
-            
-            sector_dist_df = pd.DataFrame(list(sector_dist.items()), columns=['섹터', '종목수'])
-            st.bar_chart(sector_dist_df.set_index('섹터')['종목수'])
+        with col2:
+            st.write(f"등급: {item['grade']}")
+        
+        with col3:
+            if item['market'] == 'KR':
+                st.write(f"₩{item['price']:,.0f}")
+            else:
+                st.write(f"${item['price']:.2f}")
+        
+        with col4:
+            if item.get('ai_prediction'):
+                st.write(f"AI: {item['ai_prediction']*100:.1f}%")
+        
+        with col5:
+            if st.button("🗑️", key=f"del_{item['ticker']}"):
+                st.session_state.watchlist = [w for w in st.session_state.watchlist if w['ticker'] != item['ticker']]
+                save_watchlist(st.session_state.watchlist)
+                st.rerun()
 else:
-    st.info("관심종목이 없습니다. 종목 검색 후 ➕ 버튼을 눌러 추가하세요.")
+    st.info("관심종목이 없습니다.")
 
 # 푸터
 st.markdown("---")
 st.caption("""
 💡 **투자 유의사항**
-- 모든 투자 결정은 본인의 책임입니다.
-- AI 예측과 백테스팅은 참고용입니다.
-- 프로그램 버전: 3.0 (CCI 돌파 직전 우선 검색 기능 추가)
-- 개발자: AI Assistant
+- 모든 투자 결정은 본인의 책임입니다
+- AI 예측은 참고용이며 100% 정확하지 않습니다
+- 백테스팅 신뢰도 60% 이상일 때 참고하세요
+- 버전: 4.0 (한국/미국 통합)
 """)
-
-
