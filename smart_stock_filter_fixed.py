@@ -1,35 +1,39 @@
 import streamlit as st
-# 비밀번호 확인 함수
-def check_password():
-    """Returns `True` if the user had the correct password."""
-    
-    def password_entered():
-        """Checks whether a password entered by the user is correct."""
-        if st.session_state["password"] == st.secrets["password"]:  # secrets에서 가져옴
-            st.session_state["password_correct"] = True
-            del st.session_state["password"]
-        else:
-            st.session_state["password_correct"] = False
 
+def check_password():
+    """Returns True if the user entered the correct password."""
+    # 최초 상태 보정
     if "password_correct" not in st.session_state:
+        st.session_state["password_correct"] = False
+
+    def password_entered():
+        # 키가 없어도 안전하게 읽기
+        pw = st.session_state.get("password", "")
+        secret_pw = st.secrets.get("password")  # secrets 미설정 시 None
+        if secret_pw is None:
+            st.session_state["password_correct"] = False
+            st.session_state["password_error"] = "⚠️ secrets.toml에 password 키가 없습니다."
+            return
+        st.session_state["password_correct"] = (pw == secret_pw)
+        # 성공 시 필드 치우기
+        if st.session_state["password_correct"]:
+            st.session_state.pop("password", None)
+
+    # 아직 인증 전/실패 상태면 입력창 표시
+    if not st.session_state["password_correct"]:
         st.text_input(
-            "🔐 비밀번호를 입력하세요", 
-            type="password", 
-            on_change=password_entered, 
-            key="password"
+            "🔐 비밀번호를 입력하세요",
+            type="password",
+            key="password",
+            on_change=password_entered
         )
+        # 에러 메시지는 입력 시도 이후에만 노출
+        if st.session_state.get("password_error"):
+            st.error(st.session_state["password_error"])
+        elif "password" in st.session_state and not st.session_state["password_correct"]:
+            st.error("😕 비밀번호가 틀렸습니다")
         return False
-    elif not st.session_state["password_correct"]:
-        st.text_input(
-            "🔐 비밀번호를 입력하세요", 
-            type="password", 
-            on_change=password_entered, 
-            key="password"
-        )
-        st.error("😕 비밀번호가 틀렸습니다")
-        return False
-    else:
-        return True
+    return True
 
 # 비밀번호 체크
 if not check_password():
@@ -1707,3 +1711,4 @@ st.caption("""
 - 프로그램 버전: 3.0 (CCI 돌파 직전 우선 검색 기능 추가)
 - 개발자: AI Assistant
 """)
+
